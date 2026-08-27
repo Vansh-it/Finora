@@ -1,0 +1,25 @@
+---
+import FeatureCard from '../ui/FeatureCard.astro';
+import { features } from '../../data/site';
+---
+
+<section id="features" class="border-b border-hairline bg-canvas-soft">
+  <div class="mx-auto max-w-[1400px] px-6 py-24 md:px-8 md:py-32">
+    <p class="font-mono text-caption-mono uppercase tracking-wide text-accent">// features</p>
+    <h2 class="mt-4 max-w-2xl text-display-lg text-ink text-balance">
+      Everything an analyst needs, from one prompt.
+    </h2>
+    <p class="mt-4 max-w-xl text-body-md text-body">
+      Built for equity research, due diligence, and financial education — not a
+      black box, but a verifiable research workstation.
+    </p>
+
+    <div class="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        features.map((f) => (
+          <FeatureCard title={f.title} body={f.body} icon={f.icon} />
+        ))
+      }
+    </div>
+  </div>
+</section>

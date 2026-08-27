@@ -1,0 +1,24 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ChatApp from '../components/chat/ChatApp.tsx';
+---
+
+<Layout
+  title="Financial Analyst Chat"
+  description="Chat with Finora's AI financial analyst. Ask about any public company, financial metrics, or SEC filings."
+>
+  <div class="mx-auto max-w-5xl px-6 py-16 md:px-8 md:py-20">
+    <div class="text-center">
+      <p class="font-mono text-caption-mono uppercase tracking-wide text-accent">// chat</p>
+      <h1 class="mt-4 text-display-lg text-ink text-balance">Financial Analyst Chat</h1>
+      <p class="mx-auto mt-4 max-w-xl text-body-md text-body">
+        Ask about any public company's financials, SEC filings, metrics, or business analysis.
+        15 messages per rolling 24-hour period.
+      </p>
+    </div>
+
+    <div class="mt-12">
+      <ChatApp client:load />
+    </div>
+  </div>
+</Layout>

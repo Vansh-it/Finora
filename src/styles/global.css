@@ -1,0 +1,368 @@
+/* ── Finora · Vercel-derived design system (DESIGN.md) ─────────────────── */
+/* Light-first, class-based dark mode via :root.dark token overrides.       */
+
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-sans/500.css';
+@import '@fontsource/geist-sans/600.css';
+@import '@fontsource/geist-mono/400.css';
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens (flip under .dark) ─────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --ds-canvas: #ffffff;
+  --ds-canvas-soft: #fafafa;
+  --ds-canvas-soft-2: #f5f5f5;
+
+  /* Ink & text */
+  --ds-ink: #171717;
+  --ds-body: #4d4d4d;
+  --ds-mute: #888888;
+  --ds-hairline: #ebebeb;
+  --ds-hairline-strong: #a1a1a1;
+
+  /* Accent — the single electric color */
+  --ds-accent: #0070f3;
+  --ds-accent-deep: #0761d1;
+  --ds-accent-soft: #d3e5ff;
+
+  /* Semantic */
+  --ds-error: #ee0000;
+  --ds-error-soft: #f7d4d6;
+  --ds-warning: #f5a623;
+  --ds-warning-soft: #ffefcf;
+  --ds-up: #047857;
+  --ds-down: #dc2626;
+  --ds-violet: #7928ca;
+  --ds-cyan: #50e3c2;
+  --ds-pink: #ff0080;
+
+  /* Stacked shadows — never a single heavy drop */
+  --ds-shadow-l1: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  --ds-shadow-l2:
+    0 1px 1px rgb(0 0 0 / 0.05), 0 2px 2px rgb(0 0 0 / 0.1),
+    inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  --ds-shadow-l3:
+    0 2px 2px rgb(0 0 0 / 0.1), 0 8px 8px -8px rgb(0 0 0 / 0.1),
+    inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  --ds-shadow-l4:
+    0 2px 2px rgb(0 0 0 / 0.1), 0 8px 16px -4px rgb(0 0 0 / 0.1),
+    inset 0 0 0 1px rgb(0 0 0 / 0.06);
+  --ds-shadow-l5:
+    0 1px 1px rgb(0 0 0 / 0.05), 0 8px 16px -4px rgb(0 0 0 / 0.1),
+    0 24px 32px -8px rgb(0 0 0 / 0.15), inset 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+
+:root.dark {
+  color-scheme: dark;
+
+  --ds-canvas: #0a0a0a;
+  --ds-canvas-soft: #0e0e0e;
+  --ds-canvas-soft-2: #161616;
+
+  --ds-ink: #f2f2f2;
+  --ds-body: #a1a1a1;
+  --ds-mute: #757575;
+  --ds-hairline: #1f1f1f;
+  --ds-hairline-strong: #3a3a3a;
+
+  --ds-accent: #60a5fa;
+  --ds-accent-deep: #3b82f6;
+  --ds-accent-soft: #14263f;
+
+  --ds-error: #f87171;
+  --ds-error-soft: #3b1417;
+  --ds-warning: #fbbf24;
+  --ds-warning-soft: #3a2c12;
+  --ds-up: #34d399;
+  --ds-down: #f87171;
+  --ds-violet: #a78bfa;
+  --ds-cyan: #50e3c2;
+  --ds-pink: #ff5ca8;
+
+  --ds-shadow-l1: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  --ds-shadow-l2:
+    0 1px 1px rgb(0 0 0 / 0.4), 0 2px 2px rgb(0 0 0 / 0.4),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  --ds-shadow-l3:
+    0 2px 2px rgb(0 0 0 / 0.5), 0 8px 8px -8px rgb(0 0 0 / 0.5),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  --ds-shadow-l4:
+    0 2px 2px rgb(0 0 0 / 0.5), 0 8px 16px -4px rgb(0 0 0 / 0.5),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  --ds-shadow-l5:
+    0 1px 1px rgb(0 0 0 / 0.5), 0 8px 16px -4px rgb(0 0 0 / 0.5),
+    0 24px 32px -8px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(255 255 255 / 0.06);
+}
+
+/* ── Map tokens into Tailwind utilities ────────────────────────────────── */
+@theme {
+  --color-canvas: var(--ds-canvas);
+  --color-canvas-soft: var(--ds-canvas-soft);
+  --color-canvas-soft-2: var(--ds-canvas-soft-2);
+  --color-ink: var(--ds-ink);
+  --color-body: var(--ds-body);
+  --color-mute: var(--ds-mute);
+  --color-hairline: var(--ds-hairline);
+  --color-hairline-strong: var(--ds-hairline-strong);
+  --color-accent: var(--ds-accent);
+  --color-accent-deep: var(--ds-accent-deep);
+  --color-accent-soft: var(--ds-accent-soft);
+  --color-error: var(--ds-error);
+  --color-error-soft: var(--ds-error-soft);
+  --color-warning: var(--ds-warning);
+  --color-warning-soft: var(--ds-warning-soft);
+  --color-up: var(--ds-up);
+  --color-down: var(--ds-down);
+  --color-violet: var(--ds-violet);
+  --color-cyan: var(--ds-cyan);
+  --color-pink: var(--ds-pink);
+
+  --font-sans: 'Geist Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Monaco, monospace;
+
+  /* Type scale */
+  --text-display-xl: 48px;
+  --text-display-xl--line-height: 48px;
+  --text-display-xl--letter-spacing: -2.4px;
+  --text-display-xl--font-weight: 600;
+
+  --text-display-lg: 32px;
+  --text-display-lg--line-height: 40px;
+  --text-display-lg--letter-spacing: -1.28px;
+  --text-display-lg--font-weight: 600;
+
+  --text-display-md: 24px;
+  --text-display-md--line-height: 32px;
+  --text-display-md--letter-spacing: -0.96px;
+  --text-display-md--font-weight: 600;
+
+  --text-display-sm: 20px;
+  --text-display-sm--line-height: 28px;
+  --text-display-sm--letter-spacing: -0.6px;
+  --text-display-sm--font-weight: 600;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+
+  --text-body-md-strong: 16px;
+  --text-body-md-strong--line-height: 24px;
+  --text-body-md-strong--font-weight: 500;
+
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 20px;
+  --text-body-sm--letter-spacing: -0.28px;
+
+  --text-body-sm-strong: 14px;
+  --text-body-sm-strong--line-height: 20px;
+  --text-body-sm-strong--letter-spacing: -0.28px;
+  --text-body-sm-strong--font-weight: 500;
+
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+
+  --text-caption-mono: 12px;
+  --text-caption-mono--line-height: 16px;
+
+  --text-code: 13px;
+  --text-code--line-height: 20px;
+
+  --text-button-lg: 16px;
+  --text-button-lg--line-height: 24px;
+  --text-button-lg--font-weight: 500;
+
+  --text-button-md: 14px;
+  --text-button-md--line-height: 20px;
+  --text-button-md--font-weight: 500;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill-sm: 64px;
+  --radius-pill: 100px;
+
+  /* Elevation */
+  --shadow-l1: var(--ds-shadow-l1);
+  --shadow-l2: var(--ds-shadow-l2);
+  --shadow-l3: var(--ds-shadow-l3);
+  --shadow-l4: var(--ds-shadow-l4);
+  --shadow-l5: var(--ds-shadow-l5);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 88px;
+  }
+
+  body {
+    @apply bg-canvas-soft text-ink font-sans text-body-md antialiased;
+    font-feature-settings: 'ss01', 'ss02';
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  [role='tab'] {
+    touch-action: manipulation;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: #171717;
+    color: #f2f2f2;
+  }
+
+  :root.dark ::selection {
+    background: #f2f2f2;
+    color: #171717;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Subtle atmospheric accent glow — hero scale only, no heavy gradients */
+@utility mesh {
+  background-image:
+    radial-gradient(42% 46% at 24% 18%, rgb(0 112 243 / 0.16), transparent 62%),
+    radial-gradient(30% 34% at 80% 24%, rgb(121 40 202 / 0.1), transparent 62%),
+    radial-gradient(36% 40% at 60% 84%, rgb(0 223 216 / 0.08), transparent 62%),
+    radial-gradient(46% 48% at 50% 50%, rgb(0 112 243 / 0.06), transparent 70%);
+}
+
+:root.dark .mesh {
+  background-image:
+    radial-gradient(42% 46% at 24% 18%, rgb(96 165 250 / 0.14), transparent 62%),
+    radial-gradient(30% 34% at 80% 24%, rgb(167 139 250 / 0.1), transparent 62%),
+    radial-gradient(36% 40% at 60% 84%, rgb(80 227 194 / 0.07), transparent 62%),
+    radial-gradient(46% 48% at 50% 50%, rgb(96 165 250 / 0.06), transparent 70%);
+}
+
+/* ── Motion system ────────────────────────────────────────────────────── */
+/* Subtle press feedback for CTAs — compose with color/border hover classes. */
+@utility btn-press {
+  transition:
+    transform 140ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    opacity 140ms ease,
+    box-shadow 140ms ease;
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+@layer components {
+  .animate-fade-up {
+    animation: finora-fade-up 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fade-in {
+    animation: finora-fade-in 220ms ease both;
+  }
+  .animate-pop {
+    animation: finora-pop 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-panel-in {
+    animation: finora-panel-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-shimmer-bar {
+    background-image: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+    background-size: 200% 100%;
+    animation: finora-shimmer 2.2s linear infinite;
+  }
+}
+
+@keyframes finora-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes finora-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@keyframes finora-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+}
+
+@keyframes finora-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+
+@keyframes finora-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Fade + slide page transitions (Astro <ClientRouter /> view transitions). */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-old(root) {
+    animation: finora-page-out 160ms ease-in both;
+  }
+
+  ::view-transition-new(root) {
+    animation: finora-page-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes finora-page-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes finora-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}

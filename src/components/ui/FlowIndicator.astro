@@ -1,0 +1,39 @@
+---
+interface Props {
+  active: number; // 1-based
+}
+
+const { active } = Astro.props;
+
+const flow = ['Research', 'Permission', 'Processing', 'Results', 'Dashboard'];
+---
+
+<nav aria-label="Research flow">
+  <ol class="flex flex-wrap items-center gap-2">
+    {
+      flow.map((step, i) => {
+        const stepNo = i + 1;
+        const state = stepNo === active ? 'active' : stepNo < active ? 'done' : 'todo';
+        return (
+          <li class="flex items-center gap-2">
+            <span
+              class={[
+                'flex h-7 items-center gap-1.5 rounded-full px-3 font-mono text-caption-mono',
+                state === 'active'
+                  ? 'bg-ink text-canvas'
+                  : state === 'done'
+                    ? 'bg-up/10 text-up'
+                    : 'border border-hairline text-mute',
+              ].join(' ')}
+              aria-current={state === 'active' ? 'step' : undefined}
+            >
+              <span class="tabular-nums">{String(stepNo).padStart(2, '0')}</span>
+              {step}
+            </span>
+            {stepNo < flow.length && <span class="h-px w-4 bg-hairline" aria-hidden="true"></span>}
+          </li>
+        );
+      })
+    }
+  </ol>
+</nav>

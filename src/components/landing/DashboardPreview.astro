@@ -1,0 +1,119 @@
+---
+const tiles = [
+  { label: 'Revenue', value: '$245.1B', change: '+15.7%' },
+  { label: 'Net income', value: '$88.1B', change: '+21.7%' },
+  { label: 'Operating income', value: '$109.4B', change: '+23.6%' },
+  { label: 'Gross margin', value: '69.2%', change: '+0.9 pts' },
+];
+
+const tabs = ['Overview', 'Income Statement', 'Balance Sheet', 'Cash Flow', 'Sources'];
+---
+
+<section id="previews" class="border-b border-hairline bg-canvas-soft">
+  <div class="mx-auto max-w-[1200px] px-6 py-24 md:px-8 md:py-32">
+    <div class="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
+      <div>
+        <p class="font-mono text-caption-mono uppercase tracking-wide text-accent">// the output</p>
+        <h2 class="mt-4 max-w-2xl text-display-lg text-ink text-balance">
+          A complete financial dashboard, generated and verified.
+        </h2>
+        <p class="mt-4 max-w-xl text-body-md text-body">
+          Statements, ratios, growth, and cash flow — computed from the raw
+          filings, not estimated. Every KPI opens its verification trail.
+        </p>
+      </div>
+      <a
+        href="/dashboard"
+        class="inline-flex h-11 shrink-0 items-center rounded-pill border border-hairline bg-canvas px-6 text-button-lg text-ink transition-colors hover:bg-canvas-soft"
+      >
+        Open live dashboard
+      </a>
+    </div>
+
+    <!-- Dashboard mockup -->
+    <div class="mt-14 overflow-hidden rounded-lg bg-canvas shadow-l4">
+      <div class="flex items-center justify-between border-b border-hairline px-6 py-4">
+        <div class="flex items-center gap-3">
+          <span class="flex h-8 w-8 items-center justify-center rounded-md bg-ink text-caption-mono font-semibold text-canvas">MS</span>
+          <div>
+            <p class="text-body-sm-strong text-ink">Microsoft Corporation</p>
+            <p class="font-mono text-caption-mono text-mute">MSFT · FY2024 · Jul 2023 – Jun 2024</p>
+          </div>
+        </div>
+        <div class="hidden items-center gap-1.5 sm:flex">
+          {
+            tabs.map((t) => (
+              <span
+                class={[
+                  'rounded-full px-3 py-1 text-caption',
+                  t === 'Overview' ? 'bg-ink text-canvas' : 'text-mute',
+                ].join(' ')}
+              >
+                {t}
+              </span>
+            ))
+          }
+        </div>
+      </div>
+
+      <div class="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-4">
+        {
+          tiles.map((tile) => (
+            <div class="rounded-md bg-canvas-soft p-4">
+              <div class="flex items-center justify-between">
+                <p class="text-caption text-mute">{tile.label}</p>
+                <svg class="text-accent" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 1.8l5.2 2v4.1c0 3.2-2.2 5.3-5.2 6.3-3-1-5.2-3.1-5.2-6.3V3.8L8 1.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+                </svg>
+              </div>
+              <p class="mt-2 text-display-sm text-ink tabular-nums">{tile.value}</p>
+              <p class="mt-1 font-mono text-caption-mono text-up tabular-nums">{tile.change} YoY</p>
+            </div>
+          ))
+        }
+      </div>
+
+      <div class="grid gap-4 px-6 pb-6 lg:grid-cols-[1.5fr_1fr]">
+        <div class="rounded-md bg-canvas-soft p-5">
+          <div class="flex items-center justify-between">
+            <p class="text-caption text-mute">Quarterly revenue</p>
+            <p class="font-mono text-caption-mono text-mute">FY2024 → FY2025</p>
+          </div>
+          <svg class="mt-4 h-auto w-full" viewBox="0 0 480 140" fill="none" aria-hidden="true">
+            <g stroke="var(--ds-hairline)" stroke-width="1">
+              <line x1="0" y1="120" x2="480" y2="120" />
+              <line x1="0" y1="90" x2="480" y2="90" />
+              <line x1="0" y1="60" x2="480" y2="60" />
+              <line x1="0" y1="30" x2="480" y2="30" />
+            </g>
+            <path d="M0 100 C 40 92, 70 96, 105 84 S 190 80, 230 66 S 320 56, 360 44 S 430 26, 480 18 L 480 140 L 0 140 Z" fill="var(--ds-accent)" opacity="0.08" />
+            <path d="M0 100 C 40 92, 70 96, 105 84 S 190 80, 230 66 S 320 56, 360 44 S 430 26, 480 18" stroke="var(--ds-accent)" stroke-width="2.5" stroke-linecap="round" />
+            <circle cx="480" cy="18" r="4" fill="var(--ds-accent)" />
+          </svg>
+        </div>
+        <div class="rounded-md bg-canvas-soft p-5">
+          <p class="text-caption text-mute">Revenue mix · FY2024</p>
+          <ul class="mt-4 space-y-3">
+            {
+              [
+                { label: 'Intelligent Cloud', value: '$105.4B', width: 'w-[43%]' },
+                { label: 'Productivity & Business', value: '$77.7B', width: 'w-[32%]' },
+                { label: 'More Personal Computing', value: '$62.0B', width: 'w-[25%]' },
+              ].map((seg) => (
+                <li>
+                  <div class="flex items-center justify-between">
+                    <span class="text-caption text-body">{seg.label}</span>
+                    <span class="font-mono text-caption-mono text-ink tabular-nums">{seg.value}</span>
+                  </div>
+                  <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas-soft-2">
+                    <div class={`h-full rounded-full bg-accent ${seg.width}`}></div>
+                  </div>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

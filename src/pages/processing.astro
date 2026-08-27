@@ -1,0 +1,45 @@
+---
+import Layout from '../layouts/Layout.astro';
+import FlowIndicator from '../components/ui/FlowIndicator.astro';
+import ProcessingFlow from '../components/flow/ProcessingFlow.tsx';
+
+const params = Astro.url.searchParams;
+const company = params.get('company') ?? 'Microsoft';
+const from = params.get('from') ?? '2024';
+const to = params.get('to') ?? '2025';
+const objective = params.get('objective') ?? '';
+const periodMode = params.get('period_mode') ?? 'specified';
+const sessionId = params.get('session_id') ?? '';
+
+const periodLabel = periodMode === 'latest'
+  ? 'latest available financial reporting data'
+  : `FY ${from} – ${to}`;
+---
+
+<Layout
+  title="Analyzing — Finora"
+  description="Finora is analyzing the company and building your verified dashboard."
+>
+  <div class="mx-auto max-w-3xl px-6 py-16 md:px-8 md:py-24">
+    <div class="flex justify-center">
+      <FlowIndicator active={3} />
+    </div>
+
+    <div class="mt-12 text-center">
+      <p class="font-mono text-caption-mono uppercase tracking-wide text-accent">// processing</p>
+      <h1 class="mt-4 text-display-lg text-ink text-balance">Building your research.</h1>
+      <p class="mx-auto mt-4 max-w-xl text-body-md text-body">
+        Finora is reading public filings for <strong class="text-ink">{company}</strong>,
+        covering {periodLabel}.
+      </p>
+    </div>
+
+    <div class="mt-12">
+      <ProcessingFlow client:load company={company} sessionId={sessionId} />
+    </div>
+
+    <p class="mx-auto mt-10 max-w-xl text-center font-mono text-caption-mono text-mute">
+      {objective ? `OBJECTIVE · ${objective}` : 'OBJECTIVE · CALCULATE KEY FINANCIAL METRICS'}
+    </p>
+  </div>
+</Layout>

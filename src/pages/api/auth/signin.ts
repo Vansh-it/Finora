@@ -1,26 +1,30 @@
 import type { APIRoute } from 'astro';
+import { signIn } from '../../../lib/server/auth';
 
 export const prerender = false;
-
-const BACKEND_URL = import.meta.env.BACKEND_URL || 'http://localhost:8000';
 
 export const POST: APIRoute = async ({ request }) => {
   try {
     const body = await request.json();
-    const res = await fetch(`${BACKEND_URL}/api/auth/signin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return new Response(JSON.stringify(data), {
-      status: res.status,
+    const email = body.email ?? '';
+    const password = body.password ?? '';
+
+    if (!email || !password) {
+      return new Response(
+        JSON.stringify({ error: 'Email and password are required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const result = signIn(email, password);
+    return new Response(JSON.stringify(result), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
     return new Response(
-      JSON.stringify({ error: err.message || 'Unable to connect to backend. Make sure Flask is running on port 8000.' }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: err.message || 'Sign in failed' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
     );
   }
 };

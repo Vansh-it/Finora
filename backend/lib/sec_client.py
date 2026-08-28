@@ -27,9 +27,9 @@ load_dotenv(_env_path, override=True)
 # ── Configuration ─────────────────────────────────────────────────────────────
 SEC_BASE = "https://data.sec.gov"
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
-REQUEST_TIMEOUT = 20  # seconds
-MAX_RETRIES = 3
-RETRY_BACKOFF = 1.0  # seconds, doubles each retry
+REQUEST_TIMEOUT = 15  # seconds (was 20 — tightened for pipeline SLA)
+MAX_RETRIES = 2  # was 3 — cap worst-case at ~15+30=45s
+RETRY_BACKOFF = 1.5  # seconds, doubles each retry
 MIN_REQUEST_INTERVAL = 0.12  # seconds between requests (~8 req/s, under SEC limit)
 
 

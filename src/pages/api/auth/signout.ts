@@ -1,25 +1,27 @@
 import type { APIRoute } from 'astro';
+import { signOut } from '../../../lib/server/auth';
 
 export const prerender = false;
-
-const BACKEND_URL = import.meta.env.BACKEND_URL || 'http://localhost:8000';
 
 export const POST: APIRoute = async ({ request }) => {
   try {
     const authHeader = request.headers.get('Authorization') || '';
-    const res = await fetch(`${BACKEND_URL}/api/auth/signout`, {
-      method: 'POST',
-      headers: { Authorization: authHeader },
-    });
-    const data = await res.json();
-    return new Response(JSON.stringify(data), {
-      status: res.status,
+    const token = authHeader.replace('Bearer ', '');
+    if (!token) {
+      return new Response(
+        JSON.stringify({ error: 'Missing Authorization header' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    signOut(token);
+    return new Response(JSON.stringify({ status: 'signed_out' }), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
     return new Response(
-      JSON.stringify({ error: err.message || 'Unable to connect to backend' }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: err.message || 'Sign out failed' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
 };

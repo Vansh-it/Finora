@@ -25,8 +25,8 @@ load_dotenv(_env_path, override=True)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 JINA_READER_URL = "https://r.jina.ai"
-REQUEST_TIMEOUT = 30  # seconds
-MAX_RETRIES = 2
+REQUEST_TIMEOUT = 15  # seconds (was 30 — tightened for pipeline SLA)
+MAX_RETRIES = 2  # initial + 1 retry — optional enrichment, fail fast
 RETRY_BACKOFF = 2.0  # seconds
 MIN_REQUEST_INTERVAL = 1.0  # seconds between requests
 MAX_CONTENT_LENGTH = 100_000  # characters — trim huge pages

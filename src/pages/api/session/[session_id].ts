@@ -21,9 +21,25 @@ export const GET: APIRoute = async ({ params }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: err.message || 'Failed to connect to backend' }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
-    );
+    // Fallback to Astro's own session store if Flask is unavailable
+    try {
+      const { getSession } = await import('../../../lib/server/research-sessions');
+      const session = getSession(sessionId);
+      if (!session) {
+        return new Response(JSON.stringify({ error: 'Session not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify(session), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch {
+      return new Response(
+        JSON.stringify({ error: 'Backend unavailable' }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
   }
 };

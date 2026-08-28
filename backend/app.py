@@ -13,8 +13,19 @@ import sys
 import time
 from pathlib import Path
 
+import logging
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+
+# ── Structured pipeline logging ──────────────────────────────────────────────
+logger = logging.getLogger("finora.pipeline")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%H:%M:%S"
+    ))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
 
 # ── Ensure backend.lib is importable regardless of cwd ────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -282,18 +293,24 @@ def api_fetch_filings():
         return jsonify({"error": "Access denied"}), 403
 
     # Step 1: Resolve company
+    logger.info(f"PIPELINE_TRIGGERED session_id={session_id[:12]}... company={session.company}")
+    logger.info(f"RESOLVE_COMPANY_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     update_session_status(session_id, "resolving_company")
     try:
         company = resolve_company(session.company)
         set_session_company_meta(session_id, company.to_dict())
         update_session_status(session_id, "company_resolved")
+        logger.info(f"RESOLVE_COMPANY_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s cik={company.cik}")
     except ValueError as exc:
+        logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... stage=resolve_company error={exc}")
         set_session_error(session_id, f"Could not resolve company: {exc}")
         return jsonify({
             "error": f"Could not resolve company '{session.company}': {exc}",
             "status": "error",
         }), 404
     except RuntimeError as exc:
+        logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... stage=resolve_company error={exc}")
         set_session_error(session_id, f"SEC connection failed: {exc}")
         return jsonify({
             "error": "Finora could not connect to SEC EDGAR. Please try again later.",
@@ -301,6 +318,8 @@ def api_fetch_filings():
         }), 502
 
     # Step 2: Fetch filings
+    logger.info(f"SEC_FILINGS_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     update_session_status(session_id, "fetching_filings")
     try:
         registry = retrieve_filings(
@@ -314,6 +333,7 @@ def api_fetch_filings():
         registry_dict = registry.to_dict()
         set_session_document_registry(session_id, registry_dict)
         update_session_status(session_id, "filings_found")
+        logger.info(f"SEC_FILINGS_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s count={len(registry_dict['documents'])}")
 
         return jsonify({
             "status": "filings_found",
@@ -324,6 +344,7 @@ def api_fetch_filings():
         })
 
     except ValueError as exc:
+        logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... stage=fetch_filings error={exc}")
         set_session_error(session_id, str(exc))
         return jsonify({
             "error": str(exc),
@@ -331,6 +352,7 @@ def api_fetch_filings():
             "company": company.to_dict(),
         }), 404
     except RuntimeError as exc:
+        logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... stage=fetch_filings error={exc}")
         set_session_error(session_id, f"SEC request failed: {exc}")
         return jsonify({
             "error": "Finora could not retrieve filings from SEC EDGAR. Please try again later.",
@@ -366,6 +388,8 @@ def api_extract_financials():
     if not cik:
         return jsonify({"error": "No CIK found in session"}), 400
 
+    logger.info(f"XBRL_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     update_session_status(session_id, "fetching_xbrl")
     update_session_status(session_id, "extracting_financials")
     try:
@@ -378,6 +402,7 @@ def api_extract_financials():
             end_year=session.end_year,
         )
     except Exception as exc:
+        logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... stage=extract_financials error={exc}")
         set_session_error(session_id, f"Financial extraction failed: {exc}")
         return jsonify({
             "error": "Finora could not extract financial data from SEC filings.",
@@ -389,6 +414,7 @@ def api_extract_financials():
     set_session_financial_statements(session_id, statements_dict)
     update_session_status(session_id, "financials_extracted")
     update_session_status(session_id, "ready_for_calculation")
+    logger.info(f"XBRL_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s")
 
     return jsonify({
         "status": "ready_for_calculation",
@@ -423,10 +449,13 @@ def api_calculate_metrics():
     if not session.financial_statements:
         return jsonify({"error": "Financial statements not extracted yet."}), 400
 
+    logger.info(f"METRICS_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     update_session_status(session_id, "calculating_metrics")
     try:
         metrics = calculate_metrics(session.financial_statements)
     except Exception as exc:
+        logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... stage=calculate_metrics error={exc}")
         set_session_error(session_id, f"Metric calculation failed: {exc}")
         return jsonify({
             "error": "Finora could not calculate financial metrics.",
@@ -437,6 +466,7 @@ def api_calculate_metrics():
     set_session_calculated_metrics(session_id, metrics)
     update_session_status(session_id, "metrics_calculated")
     update_session_status(session_id, "ready_for_analysis")
+    logger.info(f"METRICS_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s")
 
     return jsonify({
         "status": "ready_for_analysis",
@@ -473,6 +503,8 @@ def api_discover_sources():
     company_name = session.company_meta.get("name", session.company)
     ticker = session.company_meta.get("ticker", "")
 
+    logger.info(f"TAVILY_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     update_session_status(session_id, "discovering_sources")
     update_session_status(session_id, "filtering_sources")
     update_session_status(session_id, "validating_sources")
@@ -527,6 +559,7 @@ def api_discover_sources():
     set_session_source_registry(session_id, registry)
     update_session_status(session_id, "sources_discovered")
     update_session_status(session_id, "ready_for_reading")
+    logger.info(f"TAVILY_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s sources={len(registry.get('sources', []))}")
 
     return jsonify({
         "status": "sources_discovered",
@@ -576,6 +609,8 @@ def api_read_verify_sources():
     sources_read = 0
     jina_errors: list[str] = []
 
+    logger.info(f"JINA_START session_id={session_id[:12]}... sources_to_read={len(readable_sources)}")
+    t0 = __import__('time').time()
     update_session_status(session_id, "reading_sources")
 
     for source in readable_sources:
@@ -639,6 +674,7 @@ def api_read_verify_sources():
     set_session_verification_results(session_id, verification)
     update_session_status(session_id, "verification_complete")
     update_session_status(session_id, "ready_for_dashboard")
+    logger.info(f"JINA_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s sources_read={sources_read}")
 
     # ── Increment research quota on successful completion ──
     if session.user_id:
@@ -677,6 +713,8 @@ def api_generate_summary():
     if not session.financial_statements:
         return jsonify({"error": "Financial statements not available."}), 400
 
+    logger.info(f"SUMMARY_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     update_session_status(session_id, "generating_analysis")
 
     try:
@@ -707,6 +745,8 @@ def api_generate_summary():
     set_session_executive_summary(session_id, summary)
     update_session_status(session_id, "analysis_complete")
     update_session_status(session_id, "ready_for_dashboard")
+    logger.info(f"SUMMARY_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s")
+    logger.info(f"PIPELINE_COMPLETE session_id={session_id[:12]}...")
 
     return jsonify({
         "status": "analysis_complete",
@@ -747,6 +787,8 @@ def api_calculate_valuation():
     if not session.calculated_metrics:
         return jsonify({"error": "Metrics not calculated yet."}), 400
 
+    logger.info(f"MARKET_DATA_START session_id={session_id[:12]}...")
+    t0 = __import__('time').time()
     # Step 1: Fetch market data
     update_session_status(session_id, "fetching_market_data")
     ticker = session.company_meta.get("ticker", "") if session.company_meta else ""
@@ -866,6 +908,7 @@ def api_calculate_valuation():
     update_session_status(session_id, "validating_valuation")
     set_session_valuation_metrics(session_id, result)
     update_session_status(session_id, "valuation_complete")
+    logger.info(f"MARKET_DATA_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s")
 
     return jsonify({
         "status": "valuation_complete",

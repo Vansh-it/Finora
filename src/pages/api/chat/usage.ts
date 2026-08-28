@@ -1,12 +1,14 @@
 import type { APIRoute } from 'astro';
+import { getUserFromToken } from '../../../lib/server/auth';
+import { getChatUsage } from '../../../lib/server/chat-usage';
 
 export const prerender = false;
 
-const BACKEND_URL = import.meta.env.BACKEND_URL || 'http://localhost:8000';
-
 export const GET: APIRoute = async ({ request }) => {
   const authHeader = request.headers.get('Authorization') ?? '';
-  if (!authHeader) {
+  const token = authHeader.replace('Bearer ', '');
+
+  if (!token) {
     return new Response(JSON.stringify({ error: 'Missing Authorization header' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
@@ -14,18 +16,23 @@ export const GET: APIRoute = async ({ request }) => {
   }
 
   try {
-    const res = await fetch(`${BACKEND_URL}/api/chat/usage`, {
-      headers: { Authorization: authHeader },
-    });
-    const data = await res.json();
-    return new Response(JSON.stringify(data), {
-      status: res.status,
+    const user = getUserFromToken(token);
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const usage = getChatUsage(user.user_id);
+    return new Response(JSON.stringify(usage), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
     return new Response(
-      JSON.stringify({ error: err.message || 'Unable to connect to backend' }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: err.message || 'Failed to get usage' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
 };

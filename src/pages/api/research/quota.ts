@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro';
 import { getUserFromToken } from '../../../lib/server/auth';
-import { recordChatMessage } from '../../../lib/server/chat-usage';
+import { canUseResearch } from '../../../lib/server/research-sessions';
 
 export const prerender = false;
 
-export const POST: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request }) => {
   const authHeader = request.headers.get('Authorization') ?? '';
   const token = authHeader.replace('Bearer ', '');
 
@@ -24,14 +24,14 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    const usage = recordChatMessage(user.user_id);
-    return new Response(JSON.stringify(usage), {
-      status: usage.allowed ? 200 : 429,
+    const quota = canUseResearch(user.user_id);
+    return new Response(JSON.stringify(quota), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
     return new Response(
-      JSON.stringify({ error: err.message || 'Failed to record message' }),
+      JSON.stringify({ error: err.message || 'Failed to get quota' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }

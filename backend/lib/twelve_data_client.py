@@ -48,7 +48,7 @@ def clear_cache() -> None:
 
 # ── API calls ────────────────────────────────────────────────────────────────
 
-def fetch_quote(ticker: str, retries: int = 2, timeout: int = 15) -> dict:
+def fetch_quote(ticker: str, retries: int = 1, timeout: int = 8) -> dict:
     """Fetch real-time quote for a ticker."""
     cached = _cache_get(f"quote:{ticker}")
     if cached:
@@ -95,8 +95,8 @@ def fetch_time_series(
     ticker: str,
     interval: str = "1day",
     outputsize: int = 30,
-    retries: int = 2,
-    timeout: int = 15,
+    retries: int = 1,
+    timeout: int = 8,
 ) -> dict:
     """Fetch time series data for a ticker.
 
@@ -147,8 +147,8 @@ def fetch_time_series(
 def fetch_historical_price(
     ticker: str,
     target_date: str,
-    retries: int = 2,
-    timeout: int = 15,
+    retries: int = 1,
+    timeout: int = 8,
 ) -> Optional[dict]:
     """Fetch the closing price at or immediately before a target date.
 

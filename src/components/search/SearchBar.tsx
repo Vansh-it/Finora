@@ -126,7 +126,7 @@ export default function SearchBar({ examples, id = 'hero-search' }: Props) {
             body: JSON.stringify({ prompt: trimmed }),
           });
         } catch {
-          throw new Error('Unable to connect to the server. Please make sure the backend is running on port 8000.');
+          throw new Error('Unable to connect to the backend. Please make sure both services are running.');
         }
 
         const intentData: IntentResult = await intentRes.json();
@@ -178,7 +178,7 @@ export default function SearchBar({ examples, id = 'hero-search' }: Props) {
     try {
       let res: Response;
       try {
-        res = await fetch(`${BACKEND_URL}/api/grant-permission`, {
+        res = await fetch(`${BACKEND_URL}/api/grant-permission-proxy`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

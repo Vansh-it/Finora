@@ -100,17 +100,52 @@ _COMPLETED_STATUSES = {
 # ── In-memory session store (synced to disk) ─────────────────────────────────
 _sessions: dict[str, "ResearchSession"] = {}
 _loaded = False
+_last_load_time: float = 0.0
+
+# Reload disk state at most every 0.5 seconds to stay in sync with
+# external writers (Astro API routes) without excessive I/O.
+_RELOAD_INTERVAL = 0.5
 
 
 def _ensure_loaded() -> None:
-    """Load persisted sessions into memory on first access."""
-    global _loaded
-    if _loaded:
+    """Load persisted sessions into memory, re-syncing from disk.
+
+    The previous implementation loaded once and never re-read, which
+    caused a split-brain: Astro sessions written to disk were invisible
+    to Flask's in-memory cache.  Now we re-read from disk periodically
+    so sessions created by either process are always visible.
+    """
+    global _loaded, _last_load_time
+    import time as _time
+    now = _time.time()
+
+    if _loaded and (now - _last_load_time) < _RELOAD_INTERVAL:
         return
+
+    _last_load_time = now
     _loaded = True
+
     raw = load_research_sessions()
+    # Merge: disk is source of truth for sessions we don't have in memory
     for sid, sdata in raw.items():
-        if isinstance(sdata, dict):
+        if not isinstance(sdata, dict):
+            continue
+        if sid in _sessions:
+            # Session already in memory — update mutable fields from disk
+            # so status/data changes from other processes are visible.
+            session = _sessions[sid]
+            disk_status = sdata.get("status", session.status)
+            if disk_status != session.status:
+                session.status = disk_status
+            for field in (
+                "company_meta", "document_registry", "financial_statements",
+                "calculated_metrics", "source_registry", "verification_results",
+                "executive_summary", "market_data", "valuation_metrics", "error",
+            ):
+                disk_val = sdata.get(field)
+                if disk_val is not None:
+                    setattr(session, field, disk_val)
+        else:
             _sessions[sid] = ResearchSession(
                 session_id=sdata.get("session_id", sid),
                 company=sdata.get("company", ""),

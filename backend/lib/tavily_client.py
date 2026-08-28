@@ -24,8 +24,8 @@ load_dotenv(_env_path, override=True)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 TAVILY_API_URL = "https://api.tavily.com/search"
-REQUEST_TIMEOUT = 20  # seconds
-MAX_RETRIES = 3
+REQUEST_TIMEOUT = 10  # seconds (was 20 — tightened for pipeline SLA)
+MAX_RETRIES = 2  # was 3 — cap worst-case at ~10+20=30s
 RETRY_BACKOFF = 1.5  # seconds, doubles each retry
 MIN_REQUEST_INTERVAL = 0.5  # seconds between requests (free-tier courtesy)
 

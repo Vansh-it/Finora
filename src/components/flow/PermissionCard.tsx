@@ -32,7 +32,7 @@ export default function PermissionCard({
       let res: Response;
       try {
         const token = getToken();
-        res = await fetch(`${BACKEND_URL}/api/grant-permission`, {
+        res = await fetch(`${BACKEND_URL}/api/grant-permission-proxy`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -43,10 +43,11 @@ export default function PermissionCard({
             start_year: parseInt(fromYear) || null,
             end_year: parseInt(toYear) || null,
             objective,
+            period_mode: periodMode,
           }),
         });
       } catch {
-        throw new Error('Unable to connect to the server. Please make sure the backend is running on port 8000.');
+        throw new Error('Unable to connect to the backend. Please make sure both services are running.');
       }
 
       const data = await res.json();

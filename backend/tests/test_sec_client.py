@@ -119,14 +119,14 @@ class TestSecGet:
         def side_effect(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            if call_count < 3:
+            if call_count < 2:
                 raise HTTPError("url", 500, "Server Error", {}, None)
             return mock_response
 
         with patch("lib.sec_client.urlopen", side_effect=side_effect):
             result = sec_get("https://data.sec.gov/retry_test.json", cache_ttl=0)
             assert result == {"ok": True}
-            assert call_count == 3
+            assert call_count == 2
 
     def test_timeout_retries(self):
         mock_response = MagicMock()

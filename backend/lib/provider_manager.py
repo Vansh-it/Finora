@@ -1,6 +1,7 @@
-"""LLM provider — single model: NVIDIA Nemotron 3.5.
+"""LLM provider with automatic failover between multiple providers.
 
-Clean and simple. No failover needed — one provider that works.
+When one provider hits rate limits or errors, the system automatically
+switches to the next available provider — the user never sees an interruption.
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ from pathlib import Path
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(_env_path)
 
-MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+MODEL_NEMOTRON = "nvidia/nemotron-3.5-lightning-30b-a3b"
+MODEL_KIMI = "moonshotai/kimi-k3"
 
 
 # ── Provider health status ────────────────────────────────────────────────────
@@ -73,51 +75,100 @@ class Provider:
         return max(0.0, self.cooldown_until - time.time())
 
 
-# ── Provider manager ──────────────────────────────────────────────────────────
+# ── Provider manager with failover ────────────────────────────────────────────
 class ProviderManager:
-    """Manages LLM provider with retry on transient errors."""
+    """Manages LLM providers with automatic failover.
+
+    Tries providers in order. On rate limit/error, marks provider unavailable
+    and switches to next available. Cycles through providers on successive failures.
+    """
 
     def __init__(self) -> None:
-        api_key = os.getenv("NVIDIA_API_KEY", "")
-        if api_key:
-            self._provider = Provider(name="nvidia_nemotron", model=MODEL)
+        self._providers: list[Provider] = []
+        self._current_index = 0
+
+        # Provider 1: NVIDIA Nemotron
+        api_key1 = os.getenv("NVIDIA_API_KEY", "")
+        if api_key1:
+            self._providers.append(
+                Provider(name="nvidia_nemotron", model=MODEL_NEMOTRON)
+            )
         else:
-            self._provider = Provider(
-                name="nvidia_nemotron", model=MODEL,
-                status=ProviderStatus.UNCONFIGURED,
+            self._providers.append(
+                Provider(
+                    name="nvidia_nemotron", model=MODEL_NEMOTRON,
+                    status=ProviderStatus.UNCONFIGURED,
+                )
             )
 
+        # Provider 2: Kimi-K3 (from user's axios config)
+        api_key2 = os.getenv("NVIDIA_API_KEY_KIMI", "")
+        if api_key2:
+            self._providers.append(
+                Provider(name="kimi_k3", model=MODEL_KIMI)
+            )
+        else:
+            self._providers.append(
+                Provider(
+                    name="kimi_k3", model=MODEL_KIMI,
+                    status=ProviderStatus.UNCONFIGURED,
+                )
+            )
+
+    def _get_next_available_provider(self) -> int:
+        """Find the next available provider, skipping unavailable ones."""
+        original_index = self._current_index
+        attempts = 0
+        while attempts < len(self._providers):
+            provider = self._providers[self._current_index]
+            if provider.is_available():
+                return self._current_index
+            self._current_index = (self._current_index + 1) % len(self._providers)
+            attempts += 1
+        # All providers unavailable; reset to first and return it
+        self._current_index = 0
+        return 0
+
     def generate_text(self, prompt: str) -> str:
-        """Send prompt to NVIDIA Nemotron. Retries once on transient errors."""
+        """Send prompt to LLM with automatic failover between providers."""
         if not prompt or not prompt.strip():
             raise ValueError("prompt must be a non-empty string")
 
-        if not self._provider.is_available():
-            cooldown = self._provider.get_cooldown_remaining()
-            if cooldown > 0:
-                raise RuntimeError(
-                    f"nvidia_nemotron is rate-limited. Retry in {cooldown:.0f}s."
-                )
-            raise RuntimeError("nvidia_nemotron is not configured. Set NVIDIA_API_KEY in .env.")
+        # Try providers with failover
+        for _ in range(len(self._providers)):
+            idx = self._get_next_available_provider()
+            provider = self._providers[idx]
 
-        from openai import OpenAI
+            # Mark this provider as attempted (move index forward for next time)
+            self._current_index = (idx + 1) % len(self._providers)
 
-        api_key = os.getenv("NVIDIA_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("NVIDIA_API_KEY not configured")
+            if not provider.is_available():
+                continue
 
-        last_error: Exception | None = None
-
-        for attempt in range(2):
             try:
-                self._provider.total_requests += 1
+                from openai import OpenAI
+
+                # Choose base URL and model based on provider
+                if provider.name == "kimi_k3":
+                    base_url = "https://integrate.api.nvidia.com/v1"
+                    api_key = os.getenv("NVIDIA_API_KEY_KIMI", "")
+                else:
+                    base_url = "https://integrate.api.nvidia.com/v1"
+                    api_key = os.getenv("NVIDIA_API_KEY", "")
+
+                if not api_key:
+                    provider.mark_auth_failed()
+                    continue
+
+                self._provider = provider  # Set as current for status tracking
                 client = OpenAI(
                     api_key=api_key,
-                    base_url="https://integrate.api.nvidia.com/v1",
+                    base_url=base_url,
                     timeout=30.0,
                 )
+
                 completion = client.chat.completions.create(
-                    model=MODEL,
+                    model=provider.model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=1.0,
                     top_p=0.95,
@@ -127,46 +178,67 @@ class ProviderManager:
                 reasoning = getattr(msg, "reasoning_content", None)
                 content = msg.content or ""
                 if content:
-                    self._provider.mark_healthy()
+                    provider.mark_healthy()
                     return content
                 if reasoning:
-                    self._provider.mark_healthy()
+                    provider.mark_healthy()
                     return reasoning
-                raise RuntimeError(f"{MODEL}: empty response from API")
-            except RuntimeError as exc:
-                last_error = exc
-                msg = str(exc).lower()
-                if any(t in msg for t in ("rate", "quota", "429", "limit")):
-                    self._provider.mark_rate_limited(120.0)
-                    break
-                elif any(t in msg for t in ("auth", "invalid", "permission", "401", "403")):
-                    self._provider.mark_auth_failed()
-                    break
-                else:
-                    self._provider.mark_error(5.0)
-            except Exception as exc:
-                last_error = exc
-                self._provider.mark_error(5.0)
+                raise RuntimeError(f"{provider.model}: empty response from API")
 
-        raise RuntimeError(f"nvidia_nemotron failed: {last_error}")
+            except RuntimeError as exc:
+                exc_msg = str(exc).lower()
+                # Rate limit/quota -> mark rate limited and try next
+                if any(t in exc_msg for t in ("rate", "quota", "429", "limit")):
+                    provider.mark_rate_limited(120.0)
+                    continue
+                # Auth errors -> mark auth failed and try next
+                elif any(t in exc_msg for t in ("auth", "invalid", "permission", "401", "403")):
+                    provider.mark_auth_failed()
+                    continue
+                # Other errors -> mark error and try next
+                else:
+                    provider.mark_error(5.0)
+                    continue
+            except Exception as exc:
+                provider.mark_error(5.0)
+                continue
+
+        # All providers exhausted
+        raise RuntimeError("All LLM providers are currently unavailable")
 
     def get_status(self) -> dict:
         """Return provider status for monitoring/debugging."""
+        available_count = sum(
+            1 for p in self._providers if p.is_available()
+        )
+        active_name = (
+            self._providers[0].name if available_count > 0 else "none"
+        )
+
+        # Find first available provider as "active"
+        active_provider = "none"
+        for p in self._providers:
+            if p.is_available():
+                active_provider = p.name
+                break
+
         return {
             "providers": [
                 {
-                    "name": self._provider.name,
-                    "model": self._provider.model,
-                    "status": self._provider.status.value,
-                    "available": self._provider.is_available(),
-                    "cooldown_remaining": self._provider.get_cooldown_remaining(),
-                    "total_requests": self._provider.total_requests,
-                    "total_failures": self._provider.total_failures,
-                    "error_count": self._provider.error_count,
+                    "name": p.name,
+                    "model": p.model,
+                    "status": p.status.value,
+                    "available": p.is_available(),
+                    "cooldown_remaining": p.get_cooldown_remaining(),
+                    "total_requests": p.total_requests,
+                    "total_failures": p.total_failures,
+                    "error_count": p.error_count,
                 }
+                for p in self._providers
             ],
-            "strategy": self._provider.name,
-            "active_provider": self._provider.name if self._provider.is_available() else "none",
+            "strategy": "failover",
+            "active_provider": active_provider,
+            "total_providers": len(self._providers),
         }
 
 

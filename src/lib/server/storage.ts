@@ -1,38 +1,78 @@
 /**
  * Unified storage abstraction for Finora server-side state.
  *
- * - Production (Vercel): Upstash Redis via @upstash/redis
- * - Local development: JSON files on disk (existing behavior)
+ * Priority order:
+ *   1. Upstash Redis  (production with UPSTASH env vars)
+ *   2. JSON files     (local development)
+ *   3. In-memory Map  (Vercel without Redis — graceful degradation)
  *
  * This replaces direct fs usage in auth.ts and research-sessions.ts.
  */
-
-import { Redis } from '@upstash/redis';
 
 // ── Detection ────────────────────────────────────────────────────────────────
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || '';
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
 const USE_REDIS = Boolean(UPSTASH_URL && UPSTASH_TOKEN);
 
-let redis: Redis | null = null;
+let redis: any = null;
 if (USE_REDIS) {
-  redis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
+  try {
+    const { Redis } = await import('@upstash/redis');
+    redis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
+  } catch {
+    // Redis module not available — fall through to filesystem/memory
+  }
 }
 
 // ── Filesystem fallback ──────────────────────────────────────────────────────
-import fs from 'node:fs';
-import path from 'node:path';
+let USE_FS = false;
+let fs: typeof import('node:fs') | null = null;
+let path: typeof import('node:path') | null = null;
+let DATA_DIR = '';
 
-const DATA_DIR = path.resolve(process.cwd(), 'backend', 'data');
+try {
+  fs = await import('node:fs');
+  path = await import('node:path');
+  DATA_DIR = path.resolve(process.cwd(), 'backend', 'data');
 
+  // Test if we can actually write here (will fail on Vercel)
+  if (fs.existsSync(DATA_DIR) || (() => {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      return true;
+    } catch {
+      return false;
+    }
+  })()) {
+    USE_FS = true;
+  }
+} catch {
+  // node:fs not available (edge runtime) — use in-memory
+}
+
+// ── In-memory fallback (last resort for Vercel without Redis) ────────────────
+const memStore: Map<string, Map<string, Record<string, any>>> = new Map();
+
+function memGet(namespace: string): Map<string, Record<string, any>> {
+  if (!memStore.has(namespace)) memStore.set(namespace, new Map());
+  return memStore.get(namespace)!;
+}
+
+// ── Filesystem helpers ───────────────────────────────────────────────────────
 function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs || !DATA_DIR) return;
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch {
+    // Vercel read-only — silently fail
+  }
 }
 
 function readJSONFile(name: string): Record<string, any> {
-  const p = path.join(DATA_DIR, name);
-  if (!fs.existsSync(p)) return {};
+  if (!fs || !DATA_DIR) return {};
+  const p = path!.join(DATA_DIR, name);
   try {
+    if (!fs.existsSync(p)) return {};
     const raw = fs.readFileSync(p, 'utf-8');
     const data = JSON.parse(raw);
     return typeof data === 'object' && data !== null ? data : {};
@@ -42,21 +82,34 @@ function readJSONFile(name: string): Record<string, any> {
 }
 
 function writeJSONFile(name: string, data: Record<string, any>) {
-  ensureDir();
-  const p = path.join(DATA_DIR, name);
-  fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
+  if (!fs || !DATA_DIR) return;
+  try {
+    ensureDir();
+    const p = path!.join(DATA_DIR, name);
+    fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // Vercel read-only — silently fail
+  }
+}
+
+// ── Storage backend selector ─────────────────────────────────────────────────
+function getBackend(): 'redis' | 'fs' | 'memory' {
+  if (USE_REDIS && redis) return 'redis';
+  if (USE_FS) return 'fs';
+  return 'memory';
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Get a JSON object by key. Returns empty object if not found.
- * In Redis, the entire object is stored as a JSON string under one key.
  */
 export async function getItem(namespace: string, key: string): Promise<Record<string, any>> {
-  if (USE_REDIS && redis) {
+  const backend = getBackend();
+
+  if (backend === 'redis') {
     try {
-      const raw = await redis.get<string>(`${namespace}:${key}`);
+      const raw = await redis.get(`${namespace}:${key}`);
       if (!raw) return {};
       if (typeof raw === 'object') return raw;
       const parsed = JSON.parse(raw);
@@ -65,15 +118,22 @@ export async function getItem(namespace: string, key: string): Promise<Record<st
       return {};
     }
   }
-  // Filesystem: namespace IS the filename
-  return readJSONFile(`${namespace}.json`)[key] || {};
+
+  if (backend === 'fs') {
+    return readJSONFile(`${namespace}.json`)[key] || {};
+  }
+
+  // In-memory
+  return memGet(namespace).get(key) || {};
 }
 
 /**
  * Set a JSON object by key.
  */
 export async function setItem(namespace: string, key: string, value: Record<string, any>): Promise<void> {
-  if (USE_REDIS && redis) {
+  const backend = getBackend();
+
+  if (backend === 'redis') {
     try {
       await redis.set(`${namespace}:${key}`, JSON.stringify(value));
     } catch (err) {
@@ -81,18 +141,26 @@ export async function setItem(namespace: string, key: string, value: Record<stri
     }
     return;
   }
-  // Filesystem: read entire namespace file, update key, write back
-  const file = `${namespace}.json`;
-  const all = readJSONFile(file);
-  all[key] = value;
-  writeJSONFile(file, all);
+
+  if (backend === 'fs') {
+    const file = `${namespace}.json`;
+    const all = readJSONFile(file);
+    all[key] = value;
+    writeJSONFile(file, all);
+    return;
+  }
+
+  // In-memory
+  memGet(namespace).set(key, value);
 }
 
 /**
  * Delete a key from a namespace.
  */
 export async function deleteItem(namespace: string, key: string): Promise<void> {
-  if (USE_REDIS && redis) {
+  const backend = getBackend();
+
+  if (backend === 'redis') {
     try {
       await redis.del(`${namespace}:${key}`);
     } catch (err) {
@@ -100,19 +168,27 @@ export async function deleteItem(namespace: string, key: string): Promise<void> 
     }
     return;
   }
-  const file = `${namespace}.json`;
-  const all = readJSONFile(file);
-  delete all[key];
-  writeJSONFile(file, all);
+
+  if (backend === 'fs') {
+    const file = `${namespace}.json`;
+    const all = readJSONFile(file);
+    delete all[key];
+    writeJSONFile(file, all);
+    return;
+  }
+
+  // In-memory
+  memGet(namespace).delete(key);
 }
 
 /**
  * Get all items in a namespace as a Record<string, any>.
  */
 export async function getAll(namespace: string): Promise<Record<string, any>> {
-  if (USE_REDIS && redis) {
+  const backend = getBackend();
+
+  if (backend === 'redis') {
     try {
-      // Use keys command to find all keys in this namespace
       const pattern = `${namespace}:*`;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const keys: string[] = await (redis as any).keys(pattern);
@@ -138,16 +214,26 @@ export async function getAll(namespace: string): Promise<Record<string, any>> {
       return {};
     }
   }
-  return readJSONFile(`${namespace}.json`);
+
+  if (backend === 'fs') {
+    return readJSONFile(`${namespace}.json`);
+  }
+
+  // In-memory
+  const ns = memGet(namespace);
+  const result: Record<string, any> = {};
+  ns.forEach((v, k) => { result[k] = v; });
+  return result;
 }
 
 /**
  * Set all items in a namespace (bulk write).
  */
 export async function setAll(namespace: string, data: Record<string, any>): Promise<void> {
-  if (USE_REDIS && redis) {
+  const backend = getBackend();
+
+  if (backend === 'redis') {
     try {
-      // Pipeline the writes
       const pipeline = redis.pipeline();
       for (const [key, value] of Object.entries(data)) {
         pipeline.set(`${namespace}:${key}`, JSON.stringify(value));
@@ -158,14 +244,29 @@ export async function setAll(namespace: string, data: Record<string, any>): Prom
     }
     return;
   }
-  writeJSONFile(`${namespace}.json`, data);
+
+  if (backend === 'fs') {
+    writeJSONFile(`${namespace}.json`, data);
+    return;
+  }
+
+  // In-memory
+  const ns = memGet(namespace);
+  for (const [key, value] of Object.entries(data)) {
+    ns.set(key, value);
+  }
 }
 
 /**
- * Check if running with Redis (production) or filesystem (local dev).
+ * Check which storage backend is in use.
  */
+export function getStorageBackend(): string {
+  return getBackend();
+}
+
+/** @deprecated Use getStorageBackend() */
 export function isRedisStorage(): boolean {
-  return USE_REDIS;
+  return getBackend() === 'redis';
 }
 
 // ── Namespace constants ──────────────────────────────────────────────────────

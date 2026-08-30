@@ -21,6 +21,7 @@ let _token: string | null = null;
 let _user: AuthUser | null = null;
 let _loading = true;
 let _initialized = false;
+let _fetchPromise: Promise<void> | null = null;
 
 function emitChange() {
   listeners.forEach((fn) => fn());
@@ -33,7 +34,8 @@ export function initAuth() {
   const stored = localStorage.getItem('finora_token');
   if (stored) {
     _token = stored;
-    fetch(`${BACKEND_URL}/api/auth/me`, {
+    _loading = true;
+    _fetchPromise = fetch(`${BACKEND_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${stored}` },
     })
       .then((r) => {
@@ -52,6 +54,7 @@ export function initAuth() {
       })
       .finally(() => {
         _loading = false;
+        _fetchPromise = null;
         emitChange();
       });
   } else {
@@ -70,16 +73,12 @@ export function useAuth() {
     return () => { listeners.delete(listener); };
   }, []);
 
-  // If backend is unreachable, resolve loading immediately
+  // Longer timeout as safety net — only resolves loading, never clears user
   useEffect(() => {
-    if (_loading) {
-      const t = setTimeout(() => {
-        if (_loading) {
-          _loading = false;
-          emitChange();
-        }
-      }, 500);
-      return () => clearTimeout(t);
+    if (_loading && !_fetchPromise) {
+      // No fetch in progress and still "loading" — resolve immediately
+      _loading = false;
+      emitChange();
     }
   }, []);
 
@@ -99,6 +98,7 @@ export function useAuth() {
     localStorage.setItem('finora_token', data.token);
     _token = data.token;
     _user = data.user;
+    _loading = false;
     emitChange();
   }, []);
 
@@ -118,6 +118,7 @@ export function useAuth() {
     localStorage.setItem('finora_token', data.token);
     _token = data.token;
     _user = data.user;
+    _loading = false;
     emitChange();
   }, [])
 

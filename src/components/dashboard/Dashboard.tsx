@@ -20,7 +20,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'sources', label: 'SOURCES' },
 ];
 
-/* ── Safe accessors ──────────────────────────────────────────────────────── */
 function safeArray<T>(v: T[] | undefined | null): T[] { return Array.isArray(v) ? v : []; }
 function safeObj(v: any): Record<string, any> { return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; }
 function safeRows(table: any): { label: string; values: string[]; strong?: boolean }[] {
@@ -29,7 +28,6 @@ function safeRows(table: any): { label: string; values: string[]; strong?: boole
   return [];
 }
 
-/* ── Editorial Table ─────────────────────────────────────────────────────── */
 function FinTable({ title, unitLabel, columns, rows }: { title: string; unitLabel: string; columns: string[]; rows: { label: string; values: string[]; strong?: boolean }[] }) {
   if (!rows.length) return <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">No data available.</p>;
   return (
@@ -64,7 +62,6 @@ function FinTable({ title, unitLabel, columns, rows }: { title: string; unitLabe
   );
 }
 
-/* ── Metric Grid ─────────────────────────────────────────────────────────── */
 function MetricGrid({ items }: { items: { metric: string; value: string; note: string }[] }) {
   const safe = safeArray(items);
   if (!safe.length) return <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">No data available.</p>;
@@ -80,38 +77,118 @@ function MetricGrid({ items }: { items: { metric: string; value: string; note: s
   );
 }
 
-/* ── Executive Analysis ──────────────────────────────────────────────────── */
+/* ── Full Executive Analysis ─────────────────────────────────────────────── */
 function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | null }) {
   if (!summary || summary._metadata?.error) {
     return (
       <div className="border border-ink/20 bg-paper p-6 sm:p-8">
-        <h3 className="font-serif text-2xl font-semibold text-ink">Executive Analysis</h3>
-        <p className="mt-3 font-mono text-[10px] tracking-widest text-ink-3 uppercase">AI analysis unavailable for this research session.</p>
+        <p className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Executive Analysis</p>
+        <h3 className="mt-2 font-serif text-2xl font-semibold text-ink">The Read.</h3>
+        <p className="mt-4 font-mono text-[10px] tracking-widest text-ink-3 uppercase">AI analysis unavailable for this research session.</p>
       </div>
     );
   }
+
   return (
-    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_320px]">
-      <div>
-        <p className="mb-2 font-mono text-xs font-semibold tracking-[0.25em] text-ink-3 uppercase">Executive Analysis</p>
-        <h3 className="mb-6 font-serif text-3xl font-semibold text-ink">The Read.</h3>
-        <div className="max-w-2xl space-y-5 font-serif text-[1.05rem] leading-relaxed text-ink-2">
-          {summary.executive_overview && <p>{summary.executive_overview}</p>}
-        </div>
-      </div>
-      <div className="border-t border-ink/15 pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
-        <p className="mb-1 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Annotations</p>
-        {safeArray(summary.highlights).map((h: any, i: number) => (
-          <div key={i} className="flex items-start gap-3 border-t border-ink/12 py-3 first:border-t-0">
-            <span className={cn('shrink-0 rounded-[2px] border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase',
-              h.importance === 'high' && 'border-annotate-red text-annotate-red',
-              h.importance === 'medium' && 'border-annotate-blue text-annotate-blue',
-              h.importance === 'low' && 'border-ink/30 text-ink-3'
-            )}>{h.importance === 'high' ? 'WATCH' : h.importance === 'medium' ? 'NOTE' : 'INFO'}</span>
-            <span className="text-sm text-ink-2">{h.title || ''}</span>
+    <div className="space-y-8">
+      {/* Main overview */}
+      {summary.executive_overview && (
+        <div className="border border-ink/20 bg-paper p-6 sm:p-8">
+          <p className="mb-2 font-mono text-xs font-semibold tracking-[0.25em] text-ink-3 uppercase">Executive Analysis</p>
+          <h3 className="mb-6 font-serif text-3xl font-semibold text-ink">The Read.</h3>
+          <div className="max-w-3xl space-y-4 font-serif text-[1.05rem] leading-relaxed text-ink-2">
+            {summary.executive_overview.split('\n').filter(Boolean).map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Key Highlights */}
+      {safeArray(summary.highlights).length > 0 && (
+        <div className="border border-ink/20 bg-paper p-6 sm:p-8">
+          <p className="mb-4 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Key Highlights</p>
+          <div className="space-y-3">
+            {safeArray(summary.highlights).map((h: any, i: number) => (
+              <div key={i} className="flex items-start gap-3 border-t border-ink/12 pt-3 first:border-t-0 first:pt-0">
+                <span className={cn(
+                  'shrink-0 rounded-[2px] border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase',
+                  h.importance === 'high' && 'border-annotate-red text-annotate-red',
+                  h.importance === 'medium' && 'border-annotate-blue text-annotate-blue',
+                  h.importance === 'low' && 'border-ink/30 text-ink-3'
+                )}>{h.importance === 'high' ? 'WATCH' : h.importance === 'medium' ? 'NOTE' : 'INFO'}</span>
+                <div>
+                  <p className="font-mono text-xs font-bold text-ink">{h.title}</p>
+                  <p className="mt-1 text-sm text-ink-2">{h.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Analysis sections in grid */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {summary.growth_analysis && (
+          <div className="border border-ink/20 bg-paper p-6">
+            <p className="mb-3 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Growth &amp; Operating Performance</p>
+            <p className="text-sm leading-relaxed text-ink-2">{summary.growth_analysis}</p>
+          </div>
+        )}
+        {summary.profitability_analysis && (
+          <div className="border border-ink/20 bg-paper p-6">
+            <p className="mb-3 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Profitability Analysis</p>
+            <p className="text-sm leading-relaxed text-ink-2">{summary.profitability_analysis}</p>
+          </div>
+        )}
+        {summary.cash_flow_analysis && (
+          <div className="border border-ink/20 bg-paper p-6">
+            <p className="mb-3 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Cash Flow Analysis</p>
+            <p className="text-sm leading-relaxed text-ink-2">{summary.cash_flow_analysis}</p>
+          </div>
+        )}
+        {summary.balance_sheet_analysis && (
+          <div className="border border-ink/20 bg-paper p-6">
+            <p className="mb-3 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Balance Sheet Analysis</p>
+            <p className="text-sm leading-relaxed text-ink-2">{summary.balance_sheet_analysis}</p>
+          </div>
+        )}
       </div>
+
+      {/* Watch items */}
+      {safeArray(summary.watch_items).length > 0 && (
+        <div className="border border-ink/20 bg-paper p-6">
+          <p className="mb-4 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Watch Items</p>
+          <div className="space-y-2">
+            {safeArray(summary.watch_items).map((w: any, i: number) => (
+              <div key={i} className="flex items-start gap-3 border-t border-ink/12 py-2 first:border-t-0">
+                <span className={cn(
+                  'shrink-0 rounded-[2px] border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase',
+                  w.severity === 'high' && 'border-annotate-red text-annotate-red',
+                  w.severity === 'medium' && 'border-annotate-blue text-annotate-blue',
+                  w.severity === 'low' && 'border-annotate-green text-annotate-green'
+                )}>{w.severity || 'NOTE'}</span>
+                <span className="text-sm text-ink-2">{w.item || w.text || ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Management commentary */}
+      {summary.management_commentary_summary && (
+        <div className="border border-ink/20 bg-paper p-6">
+          <p className="mb-3 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Management Commentary</p>
+          <p className="text-sm leading-relaxed text-ink-2">{summary.management_commentary_summary}</p>
+        </div>
+      )}
+
+      {/* Data quality note */}
+      {summary.data_quality_note && (
+        <div className="border border-dashed border-ink/25 bg-paper-2/30 p-4">
+          <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">{summary.data_quality_note}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -238,11 +315,11 @@ export default function Dashboard({ sessionId }: { sessionId?: string }) {
         {tab === 'overview' && (
           <div className="space-y-14">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              {adaptedKpis.map((kpi: any, i: number) => (
+              {adaptedKpis.filter(Boolean).map((kpi: any, i: number) => (
                 <KpiCard key={kpi.id || i} label={kpi.label} value={kpi.value} delta={kpi.change?.value} deltaTone={kpi.change?.direction === 'up' ? 'pos' : kpi.change?.direction === 'down' ? 'neg' : 'neutral'} onInspect={() => setVerifyMetric(kpis.find((k: KpiData) => k.id === kpi.id) || null)} />
               ))}
             </div>
-            {chartData.length > 0 && (
+            {chartData.length > 1 && (
               <div className="border border-ink/20 bg-paper p-5">
                 <h3 className="mb-4 font-mono text-xs font-bold tracking-[0.15em] text-ink uppercase">Revenue vs. Net Income ($B)</h3>
                 <LineChart data={chartData} />

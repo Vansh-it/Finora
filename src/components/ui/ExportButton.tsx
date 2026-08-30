@@ -26,8 +26,8 @@ export default function ExportButton({ label = 'Export PDF' }: { label?: string 
       >
         {state === 'working' ? (
           <svg className="animate-spin" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="8" cy="8" r="6" stroke="var(--ds-hairline-strong)" strokeWidth="2" />
-            <path d="M14 8a6 6 0 0 0-6-6" stroke="var(--ds-accent)" strokeWidth="2" strokeLinecap="round" />
+            <circle cx="8" cy="8" r="6" stroke="#a1a1a1" strokeWidth="2" />
+            <path d="M14 8a6 6 0 0 0-6-6" stroke="#3978ff" strokeWidth="2" strokeLinecap="round" />
           </svg>
         ) : state === 'done' ? (
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">

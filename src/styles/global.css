@@ -73,6 +73,19 @@
   to { background-position: -200% 0; }
 }
 
+/* Legacy variable aliases for charts and existing components */
+:root {
+  --ds-canvas: #f2efe7;
+  --ds-canvas-soft: #e7e1d4;
+  --ds-ink: #111111;
+  --ds-body: #353535;
+  --ds-mute: #6b6558;
+  --ds-hairline: rgba(17,17,17,0.15);
+  --ds-accent: #3978ff;
+  --ds-violet: #7928ca;
+  --ds-cyan: #50e3c2;
+}
+
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 88px;

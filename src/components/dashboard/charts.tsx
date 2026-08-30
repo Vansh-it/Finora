@@ -32,7 +32,7 @@ interface LineChartProps {
   formatValue?: (v: number) => string;
 }
 
-export function LineChart({ data, height = 240, color = 'var(--ds-accent)', formatValue }: LineChartProps) {
+export function LineChart({ data, height = 240, color = '#3978ff', formatValue }: LineChartProps) {
   if (!data || data.length < 2) {
     return (
       <div className="flex h-[240px] items-center justify-center border border-dashed border-ink/20">
@@ -69,8 +69,8 @@ export function LineChart({ data, height = 240, color = 'var(--ds-accent)', form
     <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Line chart">
       {gridVals.map((v, i) => (
         <g key={i}>
-          <line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} stroke="var(--ds-hairline)" strokeWidth="1" />
-          <text x={PAD.left - 8} y={y(v) + 3.5} textAnchor="end" fontSize="10" fill="var(--ds-mute)">
+          <line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} stroke="rgba(17,17,17,0.15)" strokeWidth="1" />
+          <text x={PAD.left - 8} y={y(v) + 3.5} textAnchor="end" fontSize="10" fill="#6b6558">
             {formatValue ? formatValue(v) : v}
           </text>
         </g>
@@ -101,7 +101,7 @@ export function LineChart({ data, height = 240, color = 'var(--ds-accent)', form
               cx={x(i)}
               cy={y(d.value)}
               r="3.5"
-              fill="var(--ds-canvas)"
+              fill="#f2efe7"
               stroke={color}
               strokeWidth="2"
               style={{
@@ -119,7 +119,7 @@ export function LineChart({ data, height = 240, color = 'var(--ds-accent)', form
               y={H - 10}
               textAnchor="middle"
               fontSize="10"
-              fill="var(--ds-mute)"
+              fill="#6b6558"
               style={{ opacity: mounted ? 1 : 0, transition: `opacity 300ms ease ${350 + i * 70}ms` }}
             >
               {d.label}
@@ -138,7 +138,7 @@ interface BarChartProps {
   formatValue?: (v: number) => string;
 }
 
-export function BarChart({ data, height = 220, color = 'var(--ds-accent)', formatValue }: BarChartProps) {
+export function BarChart({ data, height = 220, color = '#3978ff', formatValue }: BarChartProps) {
   const W = 600;
   const H = height;
   const PAD = { top: 16, right: 12, bottom: 30, left: 40 };
@@ -154,7 +154,7 @@ export function BarChart({ data, height = 220, color = 'var(--ds-accent)', forma
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Bar chart">
-      <line x1={PAD.left} x2={W - PAD.right} y1={PAD.top + innerH} y2={PAD.top + innerH} stroke="var(--ds-hairline)" strokeWidth="1" />
+      <line x1={PAD.left} x2={W - PAD.right} y1={PAD.top + innerH} y2={PAD.top + innerH} stroke="rgba(17,17,17,0.15)" strokeWidth="1" />
       {data.map((d, i) => {
         const cx = PAD.left + slot * i + slot / 2;
         return (
@@ -181,7 +181,7 @@ export function BarChart({ data, height = 220, color = 'var(--ds-accent)', forma
               y={H - 10}
               textAnchor="middle"
               fontSize="10"
-              fill="var(--ds-mute)"
+              fill="#6b6558"
               style={{ opacity: mounted ? 1 : 0, transition: `opacity 300ms ease ${i * 70 + 400}ms` }}
             >
               {d.label}
@@ -192,7 +192,7 @@ export function BarChart({ data, height = 220, color = 'var(--ds-accent)', forma
               textAnchor="middle"
               fontSize="10"
               fontWeight={500}
-              fill="var(--ds-body)"
+              fill="#353535"
               style={{ opacity: mounted ? 1 : 0, transition: `opacity 300ms ease ${i * 70 + 520}ms` }}
             >
               {formatValue ? formatValue(d.value) : d.value}
@@ -249,7 +249,7 @@ interface DonutProps {
   formatValue?: (v: number) => string;
 }
 
-const DONUT_COLORS = ['var(--ds-accent)', 'var(--ds-violet)', 'var(--ds-cyan)'];
+const DONUT_COLORS = ['#3978ff', '#7928ca', '#50e3c2'];
 
 export function Donut({ data, formatValue }: DonutProps) {
   const mounted = useMounted();
@@ -289,10 +289,10 @@ export function Donut({ data, formatValue }: DonutProps) {
           })}
         </g>
         <g style={{ opacity: mounted ? 1 : 0, transition: `opacity 500ms ease ${600}ms` }}>
-          <text x="80" y="76" textAnchor="middle" fontSize="13" fontWeight={600} fill="var(--ds-ink)">
+          <text x="80" y="76" textAnchor="middle" fontSize="13" fontWeight={600} fill="#111111">
             {formatValue ? formatValue(total) : total}
           </text>
-          <text x="80" y="92" textAnchor="middle" fontSize="10" fill="var(--ds-mute)">
+          <text x="80" y="92" textAnchor="middle" fontSize="10" fill="#6b6558">
             Total
           </text>
         </g>

@@ -168,18 +168,20 @@ export async function fetchDashboardData(sessionId: string): Promise<DashboardDa
 
 /** Convert backend KPI to frontend Kpi type for KpiCard/VerificationModal */
 export function adaptKpi(kpi: KpiData) {
+  if (!kpi) return null;
   return {
-    id: kpi.id,
-    label: kpi.label,
-    value: kpi.value,
-    change: kpi.change,
-    spark: kpi.spark.length > 0 ? kpi.spark : [0],
-    verification: kpi.verification,
+    id: kpi.id || '',
+    label: kpi.label || '',
+    value: kpi.value || '—',
+    change: kpi.change || { value: '', direction: 'flat' as const },
+    spark: kpi.spark?.length > 0 ? kpi.spark : [0],
+    verification: kpi.verification || null,
   };
 }
 
 /** Convert backend table to chart SeriesPoint[] */
-export function adaptChart(chartData: { label: string; value: number }[]): SeriesPoint[] {
+export function adaptChart(chartData: { label: string; value: number }[] | undefined | null): SeriesPoint[] {
+  if (!Array.isArray(chartData)) return [];
   return chartData.map((d) => ({ label: d.label, value: d.value }));
 }
 

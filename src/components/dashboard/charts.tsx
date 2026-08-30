@@ -33,6 +33,13 @@ interface LineChartProps {
 }
 
 export function LineChart({ data, height = 240, color = 'var(--ds-accent)', formatValue }: LineChartProps) {
+  if (!data || data.length < 2) {
+    return (
+      <div className="flex h-[240px] items-center justify-center border border-dashed border-ink/20">
+        <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">Insufficient data for chart</span>
+      </div>
+    );
+  }
   const W = 600;
   const H = height;
   const PAD = { top: 16, right: 12, bottom: 30, left: 40 };

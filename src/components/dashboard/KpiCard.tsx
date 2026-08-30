@@ -34,9 +34,9 @@ export default function KpiCard({ label, value, delta, deltaTone, highlighted, u
       </div>
 
       {unavailable ? (
-        <div className="mt-3">
+        <div className="mt-3 text-center">
           <div className="font-mono text-lg font-bold text-ink-3">&mdash;</div>
-          <div className="mt-1 font-mono text-[10px] tracking-widest text-ink-3 uppercase">Data Unavailable</div>
+          <div className="mt-1 font-mono text-sm text-ink-3 uppercase">Data Unavailable</div>
         </div>
       ) : (
         <div className="mt-3 flex items-baseline gap-2">

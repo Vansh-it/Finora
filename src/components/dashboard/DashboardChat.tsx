@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, ArrowUp, Sparkles } from 'lucide-react';
 import { getToken } from '../../lib/auth';
-import SourceCitation from '../ui/SourceCitation';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -9,8 +8,8 @@ interface ChatMessage {
 }
 
 const SUGGESTED = [
-  'How did you calculate ROIC?',
-  'Why did margins change?',
+  'How did Finora calculate gross margin?',
+  'Why did revenue change?',
   'Explain this company simply.',
   'What are the biggest risks?',
   'Which numbers were cross-verified?',
@@ -21,6 +20,7 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,11 +29,13 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
     }
   }, [messages]);
 
-  async function ask(question: string) {
+  async function ask(question: string, retry = false) {
     if (!question.trim() || loading) return;
     const userMsg: ChatMessage = { role: 'user', content: question };
-    setMessages((m) => [...m, userMsg]);
-    setInput('');
+    if (!retry) {
+      setMessages((m) => [...m, userMsg]);
+      setInput('');
+    }
     setLoading(true);
 
     try {
@@ -44,12 +46,23 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ message: question, session_id: sessionId, history: messages.slice(-8) }),
+        body: JSON.stringify({
+          message: question,
+          session_id: sessionId,
+          history: messages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
+        }),
       });
+
       const data = await res.json();
-      setMessages((m) => [...m, { role: 'assistant', content: data.response || data.error || 'No response.' }]);
-    } catch {
-      setMessages((m) => [...m, { role: 'assistant', content: 'Unable to connect to Finora. Please try again.' }]);
+      const responseText = data.response || data.error || data.message || 'No response received from Finora.';
+      setMessages((m) => [...m, { role: 'assistant', content: responseText }]);
+      setRetryCount(0);
+    } catch (err: any) {
+      const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+      const errorMsg = isTimeout
+        ? 'The research assistant is processing a complex question. Please try again.'
+        : 'Unable to connect to Finora. Please try again.';
+      setMessages((m) => [...m, { role: 'assistant', content: errorMsg }]);
     } finally {
       setLoading(false);
     }
@@ -71,6 +84,7 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
         <div className="fixed inset-0 z-[70] flex justify-end">
           <button aria-label="Close chat" className="absolute inset-0 bg-ink/30" onClick={onToggle} />
           <div className="relative flex h-full w-full max-w-lg flex-col border-l-2 border-ink bg-paper">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-ink/15 p-5">
               <div>
                 <p className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Finora Research Assistant</p>
@@ -81,6 +95,7 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
               </button>
             </div>
 
+            {/* Messages */}
             <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-5">
               {messages.length === 0 && (
                 <div>
@@ -109,7 +124,11 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
                     </div>
                   ) : (
                     <div className="max-w-[95%] border border-ink/20 bg-paper p-5 sm:max-w-[80%] sm:p-6">
-                      <p className="text-sm leading-relaxed text-ink-2">{m.content}</p>
+                      <div className="text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">
+                        {m.content.split('\n').filter(Boolean).map((line, li) => (
+                          <p key={li} className={li > 0 ? 'mt-3' : ''}>{line}</p>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -124,6 +143,7 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
               )}
             </div>
 
+            {/* Input */}
             <form
               onSubmit={(e) => { e.preventDefault(); ask(input); }}
               className="flex items-center gap-2 border-t border-ink/15 p-4"
@@ -133,6 +153,7 @@ export default function DashboardChat({ sessionId, open, onToggle }: { sessionId
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask about this research..."
                 className="flex-1 border border-ink/25 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink"
+                disabled={loading}
               />
               <button
                 type="submit"

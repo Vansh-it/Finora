@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import KpiCard from './KpiCard';
-import { LineChart } from './charts';
+import { MultiSeriesLineChart } from './charts';
+import type { SeriesPoint } from './charts';
 import DashboardChat from './DashboardChat';
 import VerificationModal from './VerificationModal';
-import { fetchDashboardData, adaptKpi, adaptChart } from '../../lib/dashboardAdapter';
+import { fetchDashboardData, adaptKpi } from '../../lib/dashboardAdapter';
 import type { DashboardData, ExecutiveSummary, KpiData } from '../../lib/dashboardAdapter';
 import { cn } from '../../lib/utils';
 
@@ -28,6 +29,14 @@ function safeRows(table: any): { label: string; values: string[]; strong?: boole
   return [];
 }
 
+/* ── Formatters ──────────────────────────────────────────────────────────── */
+function fmtBillions(v: number): string {
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}T`;
+  if (Math.abs(v) >= 1) return `$${v.toFixed(0)}B`;
+  return `$${v.toFixed(1)}B`;
+}
+
+/* ── Financial Table ─────────────────────────────────────────────────────── */
 function FinTable({ title, unitLabel, columns, rows }: { title: string; unitLabel: string; columns: string[]; rows: { label: string; values: string[]; strong?: boolean }[] }) {
   if (!rows.length) return <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">No data available.</p>;
   return (
@@ -51,7 +60,7 @@ function FinTable({ title, unitLabel, columns, rows }: { title: string; unitLabe
               <tr key={ri} className={cn('group border-b border-ink/12 hover:bg-paper-2/60', r.strong && 'border-b border-ink/40 font-semibold')}>
                 <td className={cn('sticky left-0 bg-paper py-3 pr-4 group-hover:bg-paper-2/60', r.strong ? 'text-ink font-semibold' : 'text-ink-2')}>{r.label}</td>
                 {safeArray(r.values).map((v, i) => (
-                  <td key={i} className={cn('py-3 pl-4 text-right font-mono tabular text-ink', r.strong && 'font-bold', String(v).startsWith('(') && 'text-annotate-red')}>{v}</td>
+                  <td key={i} className={cn('py-3 pl-4 text-right font-mono tabular-nums text-ink', r.strong && 'font-bold', String(v).startsWith('(') && 'text-annotate-red')}>{v}</td>
                 ))}
               </tr>
             ))}
@@ -62,15 +71,17 @@ function FinTable({ title, unitLabel, columns, rows }: { title: string; unitLabe
   );
 }
 
+/* ── Metric Grid ─────────────────────────────────────────────────────────── */
 function MetricGrid({ items }: { items: { metric: string; value: string; note: string }[] }) {
   const safe = safeArray(items);
   if (!safe.length) return <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">No data available.</p>;
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4">
       {safe.map((p, i) => (
-        <div key={i} className="border border-ink/20 bg-paper p-5">
-          <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{p.metric}</span>
-          <div className="mt-2 font-mono text-2xl font-bold text-ink tabular">{p.value}</div>
+        <div key={i} className="border border-ink/20 bg-paper p-4 flex flex-col sm:flex-row items-start justify-between">
+          <span className="font-mono text-[9px] font-semibold tracking-[0.1em] text-ink-3 uppercase pr-2">{p.metric}</span>
+          <div className="mt-2 sm:mt-0 sm:ml-auto font-mono text-xl font-bold text-ink tabular-nums">{p.value}</div>
+          {p.note && <div className="mt-2 sm:mt-0 text-[10px] text-ink-3 uppercase">{p.note}</div>}
         </div>
       ))}
     </div>
@@ -84,14 +95,13 @@ function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | nul
       <div className="border border-ink/20 bg-paper p-6 sm:p-8">
         <p className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Executive Analysis</p>
         <h3 className="mt-2 font-serif text-2xl font-semibold text-ink">The Read.</h3>
-        <p className="mt-4 font-mono text-[10px] tracking-widest text-ink-3 uppercase">AI analysis unavailable for this research session.</p>
+        <p className="mt-4 font-mono text-[10px] tracking-widest text-ink-3 uppercase">Executive analysis unavailable for this research session. Core verified financial research remains available.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
-      {/* Main overview */}
       {summary.executive_overview && (
         <div className="border border-ink/20 bg-paper p-6 sm:p-8">
           <p className="mb-2 font-mono text-xs font-semibold tracking-[0.25em] text-ink-3 uppercase">Executive Analysis</p>
@@ -104,7 +114,6 @@ function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | nul
         </div>
       )}
 
-      {/* Key Highlights */}
       {safeArray(summary.highlights).length > 0 && (
         <div className="border border-ink/20 bg-paper p-6 sm:p-8">
           <p className="mb-4 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Key Highlights</p>
@@ -127,7 +136,6 @@ function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | nul
         </div>
       )}
 
-      {/* Analysis sections in grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {summary.growth_analysis && (
           <div className="border border-ink/20 bg-paper p-6">
@@ -155,7 +163,6 @@ function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | nul
         )}
       </div>
 
-      {/* Watch items */}
       {safeArray(summary.watch_items).length > 0 && (
         <div className="border border-ink/20 bg-paper p-6">
           <p className="mb-4 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Watch Items</p>
@@ -175,7 +182,6 @@ function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | nul
         </div>
       )}
 
-      {/* Management commentary */}
       {summary.management_commentary_summary && (
         <div className="border border-ink/20 bg-paper p-6">
           <p className="mb-3 font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Management Commentary</p>
@@ -183,7 +189,6 @@ function ExecutiveAnalysisSection({ summary }: { summary: ExecutiveSummary | nul
         </div>
       )}
 
-      {/* Data quality note */}
       {summary.data_quality_note && (
         <div className="border border-dashed border-ink/25 bg-paper-2/30 p-4">
           <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">{summary.data_quality_note}</p>
@@ -223,6 +228,102 @@ function SourceLedger({ sources }: { sources: any[] }) {
   );
 }
 
+/* ── Valuation Section ───────────────────────────────────────────────────── */
+function ValuationSection({ valuation }: { valuation: any }) {
+  const marketData = safeObj(valuation.market_data);
+  const metrics = safeArray(valuation.metrics);
+  const isFinancial = valuation.is_financial_institution;
+
+  const headlineMetrics = metrics.filter((m: any) => ['share_price', 'market_cap', 'enterprise_value'].includes(m.metric_id));
+  const multipleMetrics = metrics.filter((m: any) => !['share_price', 'market_cap', 'enterprise_value'].includes(m.metric_id));
+
+  return (
+    <div className="space-y-8">
+      {/* Market data header */}
+      {marketData.price && (
+        <div className="border border-ink/20 bg-paper p-6">
+          <div className="flex items-baseline gap-4">
+            <span className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Share Price</span>
+            {marketData.percent_change !== null && marketData.percent_change !== undefined && (
+              <span className={cn('font-mono text-xs font-semibold', marketData.percent_change >= 0 ? 'text-annotate-green' : 'text-annotate-red')}>
+                {marketData.percent_change >= 0 ? '+' : ''}{marketData.percent_change.toFixed(2)}%
+              </span>
+            )}
+          </div>
+          <div className="mt-2 font-serif text-5xl font-semibold text-ink tabular-nums">
+            ${typeof marketData.price === 'number' ? marketData.price.toFixed(2) : '—'}
+          </div>
+          {marketData.price_date && (
+            <p className="mt-2 font-mono text-[10px] tracking-widest text-ink-3 uppercase">
+              As of {marketData.price_date} · {marketData.source || 'Twelve Data'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Headline metrics: Market Cap, Enterprise Value */}
+      {headlineMetrics.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {headlineMetrics.map((m: any, i: number) => {
+            const isNA = m.status === 'unavailable' || m.applicability === 'not_applicable';
+            return (
+              <div key={i} className={cn('border bg-paper p-5', isNA ? 'border-dashed border-ink/30' : 'border-ink/20')}>
+                <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{m.name}</span>
+                <div className={cn('mt-2 font-mono text-2xl font-bold tabular-nums', isNA ? 'text-ink-3' : 'text-ink')}>
+                  {isNA ? '—' : (m.display_value || '—')}
+                </div>
+                {isNA && m.reason && (
+                  <div className="mt-1 font-mono text-[10px] tracking-widest text-ink-3 uppercase">{m.reason}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Multiples */}
+      {multipleMetrics.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {multipleMetrics.map((m: any, i: number) => {
+            const isNA = m.status === 'unavailable' || m.applicability === 'not_applicable';
+            return (
+              <div key={i} className={cn('border bg-paper p-5', isNA ? 'border-dashed border-ink/30' : 'border-ink/20')}>
+                <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{m.name}</span>
+                <div className={cn('mt-2 font-mono text-xl font-bold tabular-nums', isNA ? 'text-ink-3' : 'text-ink')}>
+                  {isNA ? '—' : (m.display_value || '—')}
+                </div>
+                {isNA && (
+                  <div className="mt-1 font-mono text-[10px] tracking-widest text-ink-3 uppercase">
+                    {m.applicability === 'not_applicable' ? 'Not Applicable' : 'Data Unavailable'}
+                  </div>
+                )}
+                {!isNA && m.formula && (
+                  <div className="mt-2 font-mono text-[9px] text-ink-3 leading-tight">{m.formula}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Financial institution note */}
+      {isFinancial && (
+        <div className="border border-dashed border-ink/25 bg-paper-2/30 p-4">
+          <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">
+            Note: Finora applies adjusted methodology for financial institutions. Conventional industrial metrics such as EBITDA and EV/EBITDA may not be shown where economically inappropriate.
+          </p>
+        </div>
+      )}
+
+      {!metrics.length && !marketData.price && (
+        <div className="border border-dashed border-ink/25 bg-paper-2/30 p-6 text-center">
+          <p className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">Valuation data unavailable for this research session.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Dashboard ──────────────────────────────────────────────────────── */
 export default function Dashboard({ sessionId }: { sessionId?: string }) {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -241,7 +342,7 @@ export default function Dashboard({ sessionId }: { sessionId?: string }) {
 
   if (loading) return (
     <div className="mx-auto max-w-md px-6 py-24 text-center">
-      <div className="mb-6 flex h-16 w-16 items-center justify-center border-2 border-dashed border-ink/30 mx-auto"><span className="font-mono text-2xl text-ink-3">&hellip;</span></div>
+      <div className="mb-6 flex h-16 w-16 items-center justify-center border-2 border-dashed border-ink/30 mx-auto animate-pulse"><span className="font-mono text-2xl text-ink-3">&hellip;</span></div>
       <h2 className="font-serif text-3xl font-semibold text-ink">Loading research&hellip;</h2>
     </div>
   );
@@ -256,7 +357,6 @@ export default function Dashboard({ sessionId }: { sessionId?: string }) {
 
   const kpis = safeArray(data.kpis);
   const adaptedKpis = kpis.map(adaptKpi);
-  const chartData = adaptChart(safeObj(data.charts).revenue);
   const company = safeObj(data.company);
   const periods = safeArray(data.periods);
   const latest = periods[periods.length - 1] || '';
@@ -267,6 +367,15 @@ export default function Dashboard({ sessionId }: { sessionId?: string }) {
   const growth = safeObj(data.growth);
   const valuation = safeObj(data.valuation);
   const sources = safeArray(data.sources);
+
+  // Build chart data for Revenue vs Net Income
+  const revenueChart: SeriesPoint[] = safeArray(safeObj(data.charts).revenue).map((d: any) => ({ label: d.label, value: d.value }));
+  const netIncomeChart: SeriesPoint[] = safeArray(safeObj(data.charts).net_income).map((d: any) => ({ label: d.label, value: d.value }));
+
+  const chartSeries = [
+    { name: 'Revenue', data: revenueChart, color: '#111111' },
+    { name: 'Net Income', data: netIncomeChart, color: '#3978ff' },
+  ].filter((s) => s.data.length > 0);
 
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-10">
@@ -294,7 +403,7 @@ export default function Dashboard({ sessionId }: { sessionId?: string }) {
           { label: 'Mismatches', value: String(dq.mismatches ?? 0) },
         ].map((item) => (
           <div key={item.label} className="px-4 py-3 first:pl-0">
-            <div className={item.isText ? 'font-mono text-sm font-bold text-ink' : 'font-mono text-xl font-bold text-ink tabular'}>{item.value}</div>
+            <div className={cn('font-mono font-bold', item.isText ? 'text-sm' : 'text-xl')}>{item.value}</div>
             <div className="mt-0.5 font-mono text-[10px] font-semibold tracking-[0.12em] text-ink-3 uppercase">{item.label}</div>
           </div>
         ))}
@@ -314,50 +423,39 @@ export default function Dashboard({ sessionId }: { sessionId?: string }) {
       <div className="pt-10 pb-24">
         {tab === 'overview' && (
           <div className="space-y-14">
+            {/* KPI Cards */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
               {adaptedKpis.filter(Boolean).map((kpi: any, i: number) => (
                 <KpiCard key={kpi.id || i} label={kpi.label} value={kpi.value} delta={kpi.change?.value} deltaTone={kpi.change?.direction === 'up' ? 'pos' : kpi.change?.direction === 'down' ? 'neg' : 'neutral'} onInspect={() => setVerifyMetric(kpis.find((k: KpiData) => k.id === kpi.id) || null)} />
               ))}
             </div>
-            {chartData.length > 1 && (
+
+            {/* Revenue vs Net Income Chart */}
+            {chartSeries.length > 0 && (
               <div className="border border-ink/20 bg-paper p-5">
                 <h3 className="mb-4 font-mono text-xs font-bold tracking-[0.15em] text-ink uppercase">Revenue vs. Net Income ($B)</h3>
-                <LineChart data={chartData} />
+                <MultiSeriesLineChart series={chartSeries} formatValue={fmtBillions} />
               </div>
             )}
+
+            {/* Executive Analysis */}
             <ExecutiveAnalysisSection summary={data.executive_summary || null} />
           </div>
         )}
-        {tab === 'income' && <FinTable title="Income Statement" unitLabel="USD Millions" columns={['Line Item', ...periods]} rows={safeRows(incStmt)} />}
-        {tab === 'balance' && <FinTable title="Balance Sheet" unitLabel="USD Millions" columns={['Line Item', ...periods]} rows={safeRows(balSheet)} />}
-        {tab === 'cashflow' && <FinTable title="Cash Flow Statement" unitLabel="USD Millions" columns={['Line Item', ...periods]} rows={safeRows(cashFlow)} />}
+
+        {tab === 'income' && <FinTable title="Income Statement" unitLabel="USD (Billions)" columns={['Line Item', ...periods]} rows={safeRows(incStmt)} />}
+        {tab === 'balance' && <FinTable title="Balance Sheet" unitLabel="USD (Billions)" columns={['Line Item', ...periods]} rows={safeRows(balSheet)} />}
+        {tab === 'cashflow' && <FinTable title="Cash Flow Statement" unitLabel="USD (Billions)" columns={['Line Item', ...periods]} rows={safeRows(cashFlow)} />}
         {tab === 'growth' && <MetricGrid items={safeRows(growth).map((r) => ({ metric: r.label, value: r.values?.[0] || '—', note: '' }))} />}
-        {tab === 'profitability' && <MetricGrid items={[...(safeArray(data.profitability)), ...(safeArray(data.liquidity)), ...(safeArray(data.leverage)), ...(safeArray(data.efficiency))]} />}
-        {tab === 'valuation' && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {safeArray(valuation.metrics).filter((m: any) => ['Share Price', 'Market Cap', 'Enterprise Value'].includes(m.label)).map((m: any, i: number) => (
-                <div key={i} className="border border-ink/20 bg-paper p-5">
-                  <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{m.label}</span>
-                  <div className="mt-2 font-mono text-2xl font-bold text-ink tabular">{m.value || '—'}</div>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {safeArray(valuation.metrics).filter((m: any) => !['Share Price', 'Market Cap', 'Enterprise Value'].includes(m.label)).map((m: any, i: number) => (
-                <div key={i} className={cn('border bg-paper p-5', m.unavailable ? 'border-dashed border-ink/30' : 'border-ink/20')}>
-                  <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{m.label}</span>
-                  <div className={cn('mt-2 font-mono text-xl font-bold tabular', m.unavailable ? 'text-ink-3' : 'text-ink')}>{m.unavailable ? '—' : (m.value || '—')}</div>
-                  {m.unavailable && <div className="mt-1 font-mono text-[10px] tracking-widest text-ink-3 uppercase">Data Unavailable</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {tab === 'profitability' && <MetricGrid items={[...(safeArray(data.profitability)), ...(safeArray(data.liquidity)), ...(safeArray(data.leverage)), ...(safeArray(data.efficiency)), ...(safeArray(data.capital_allocation))]} />}
+        {tab === 'valuation' && <ValuationSection valuation={valuation} />}
         {tab === 'sources' && <SourceLedger sources={sources} />}
       </div>
 
+      {/* Evidence Drawer */}
       {verifyMetric && <VerificationModal kpi={verifyMetric} onClose={() => setVerifyMetric(null)} />}
+
+      {/* Dashboard Chat */}
       <DashboardChat sessionId={sessionId || new URLSearchParams(window.location.search).get('session_id') || ''} open={chatOpen} onToggle={toggleChat} />
     </div>
   );

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import type { SeriesPoint } from '../../data/microsoft';
 
 /* Theme-aware SVG charts — no chart library, crisp at any DPI.
    All charts animate in on mount: lines draw, bars grow, donuts sweep. */
@@ -25,6 +24,189 @@ function usePathLength(ref: RefObject<SVGPathElement | null>, ready: boolean) {
 
 const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
+export interface SeriesPoint {
+  label: string;
+  value: number;
+}
+
+interface MultiSeriesLineChartProps {
+  series: { name: string; data: SeriesPoint[]; color: string }[];
+  height?: number;
+  formatValue?: (v: number) => string;
+  unitLabel?: string;
+}
+
+export function MultiSeriesLineChart({ series, height = 280, formatValue, unitLabel = '$B' }: MultiSeriesLineChartProps) {
+  const allData = series.flatMap((s) => s.data);
+  if (!allData.length) {
+    return (
+      <div className="flex h-[240px] items-center justify-center border border-dashed border-ink/20">
+        <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">Insufficient data for chart</span>
+      </div>
+    );
+  }
+
+  const W = 640;
+  const H = height;
+  const PAD = { top: 20, right: 16, bottom: 36, left: 56 };
+
+  // Collect all unique periods across series, sorted
+  const allLabels = [...new Set(allData.map((d) => d.label))].sort();
+  const xMap = new Map(allLabels.map((l, i) => [l, i]));
+
+  // Find global min/max across all series
+  const allValues = allData.map((d) => d.value);
+  let min = Math.min(...allValues);
+  let max = Math.max(...allValues);
+  // Add some padding
+  const padding = (max - min) * 0.08 || max * 0.1;
+  min = Math.max(0, min - padding);
+  max = max + padding;
+
+  const span = max - min || 1;
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const mounted = useMounted();
+
+  const x = (label: string) => PAD.left + ((xMap.get(label) ?? 0) / Math.max(allLabels.length - 1, 1)) * innerW;
+  const y = (v: number) => PAD.top + innerH - ((v - min) / span) * innerH;
+
+  const defaultFmt = (v: number) => {
+    if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(0)}T`;
+    if (Math.abs(v) >= 1) return `$${v.toFixed(0)}B`;
+    return `$${v.toFixed(2)}B`;
+  };
+  const fmt = formatValue || defaultFmt;
+
+  // Y-axis ticks (4-5 nice ticks)
+  const tickCount = 5;
+  const rawStep = span / tickCount;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
+  const niceStep = Math.ceil(rawStep / mag) * mag || 1;
+  const gridStart = Math.ceil(min / niceStep) * niceStep;
+  const gridVals: number[] = [];
+  for (let v = gridStart; v <= max + niceStep * 0.01; v += niceStep) {
+    gridVals.push(v);
+  }
+
+  // Period labels — show every Nth to avoid crowding
+  const showEvery = Math.max(1, Math.ceil(allLabels.length / 8));
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Multi-series line chart">
+        {/* Grid lines & Y-axis labels */}
+        {gridVals.map((v, i) => (
+          <g key={i}>
+            <line
+              x1={PAD.left}
+              x2={W - PAD.right}
+              y1={y(v)}
+              y2={y(v)}
+              stroke="rgba(17,17,17,0.1)"
+              strokeWidth="1"
+            />
+            <text
+              x={PAD.left - 10}
+              y={y(v) + 4}
+              textAnchor="end"
+              fontSize="11"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#6b6558"
+            >
+              {fmt(v)}
+            </text>
+          </g>
+        ))}
+
+        {/* Bottom axis */}
+        <line
+          x1={PAD.left}
+          x2={W - PAD.right}
+          y1={PAD.top + innerH}
+          y2={PAD.top + innerH}
+          stroke="rgba(17,17,17,0.25)"
+          strokeWidth="1"
+        />
+
+        {/* X-axis period labels */}
+        {allLabels.map((label, i) =>
+          i % showEvery === 0 || i === allLabels.length - 1 ? (
+            <text
+              key={label}
+              x={x(label)}
+              y={H - 10}
+              textAnchor="middle"
+              fontSize="11"
+              fontFamily="IBM Plex Mono, monospace"
+              fill="#6b6558"
+              style={{ opacity: mounted ? 1 : 0, transition: `opacity 300ms ease ${200 + i * 50}ms` }}
+            >
+              {label}
+            </text>
+          ) : null,
+        )}
+
+        {/* Lines */}
+        {series.map((s, si) => {
+          const points = s.data.map((d) => `${x(d.label).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ');
+          if (!points) return null;
+          const pathD = points.split(' ').map((p, i) => `${i === 0 ? 'M' : 'L'}${p}`).join(' ');
+
+          return (
+            <g key={s.name}>
+              <path
+                d={pathD}
+                fill="none"
+                stroke={s.color}
+                strokeWidth="2.5"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                style={{
+                  strokeDasharray: 2000,
+                  strokeDashoffset: mounted ? 0 : 2000,
+                  transition: `stroke-dashoffset 1200ms ${EASE} ${si * 200}ms`,
+                }}
+              />
+              {/* Data points */}
+              {s.data.map((d, i) => (
+                <circle
+                  key={i}
+                  cx={x(d.label)}
+                  cy={y(d.value)}
+                  r="4"
+                  fill="#f2efe7"
+                  stroke={s.color}
+                  strokeWidth="2"
+                  style={{
+                    opacity: mounted ? 1 : 0,
+                    transition: `opacity 300ms ease ${400 + i * 80}ms`,
+                  }}
+                >
+                  <title>{`${d.label}\n${s.name}: ${fmt(d.value)}`}</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Legend */}
+      <div className="mt-3 flex items-center justify-center gap-6">
+        {series.map((s) => (
+          <div key={s.name} className="flex items-center gap-2">
+            <span className="block h-[3px] w-5" style={{ backgroundColor: s.color }} />
+            <span className="font-mono text-[10px] font-semibold tracking-widest text-ink-2 uppercase">{s.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Legacy single-series LineChart ──────────────────────────────────────── */
+
 interface LineChartProps {
   data: SeriesPoint[];
   height?: number;
@@ -33,103 +215,16 @@ interface LineChartProps {
 }
 
 export function LineChart({ data, height = 240, color = '#3978ff', formatValue }: LineChartProps) {
-  if (!data || data.length < 2) {
-    return (
-      <div className="flex h-[240px] items-center justify-center border border-dashed border-ink/20">
-        <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">Insufficient data for chart</span>
-      </div>
-    );
-  }
-  const W = 600;
-  const H = height;
-  const PAD = { top: 16, right: 12, bottom: 30, left: 40 };
-  const values = data.map((d) => d.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const innerW = W - PAD.left - PAD.right;
-  const innerH = H - PAD.top - PAD.bottom;
-
-  const mounted = useMounted();
-  const lineRef = useRef<SVGPathElement>(null);
-  const len = usePathLength(lineRef, mounted);
-  const dash = len || 1200;
-
-  const x = (i: number) => PAD.left + (i / (data.length - 1)) * innerW;
-  const y = (v: number) => PAD.top + innerH - ((v - min) / span) * innerH;
-
-  const line = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ');
-  const area = `${line} L${x(data.length - 1).toFixed(1)},${(PAD.top + innerH).toFixed(1)} L${x(0).toFixed(1)},${(PAD.top + innerH).toFixed(1)} Z`;
-
-  const ticks = 4;
-  const gridVals = Array.from({ length: ticks + 1 }, (_, i) => min + (span * i) / ticks);
-  const showXEvery = Math.ceil(data.length / 6);
-
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Line chart">
-      {gridVals.map((v, i) => (
-        <g key={i}>
-          <line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} stroke="rgba(17,17,17,0.15)" strokeWidth="1" />
-          <text x={PAD.left - 8} y={y(v) + 3.5} textAnchor="end" fontSize="10" fill="#6b6558">
-            {formatValue ? formatValue(v) : v}
-          </text>
-        </g>
-      ))}
-      <path
-        d={area}
-        fill={color}
-        style={{ opacity: mounted ? 0.08 : 0, transition: `opacity 700ms ease ${200}ms` }}
-      />
-      <path
-        ref={lineRef}
-        d={line}
-        fill="none"
-        stroke={color}
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        style={{
-          strokeDasharray: dash,
-          strokeDashoffset: mounted ? 0 : dash,
-          transition: `stroke-dashoffset 1100ms ${EASE} 150ms`,
-        }}
-      />
-      {data.map((d, i) =>
-        i % showXEvery === 0 || i === data.length - 1 ? (
-          <g key={i}>
-            <circle
-              cx={x(i)}
-              cy={y(d.value)}
-              r="3.5"
-              fill="#f2efe7"
-              stroke={color}
-              strokeWidth="2"
-              style={{
-                opacity: mounted ? 1 : 0,
-                transform: mounted ? 'scale(1)' : 'scale(0)',
-                transformBox: 'fill-box',
-                transformOrigin: 'center',
-                transition: `opacity 300ms ease ${350 + i * 70}ms, transform 300ms ease ${350 + i * 70}ms`,
-              }}
-            >
-              <title>{`${d.label}: ${formatValue ? formatValue(d.value) : d.value}`}</title>
-            </circle>
-            <text
-              x={x(i)}
-              y={H - 10}
-              textAnchor="middle"
-              fontSize="10"
-              fill="#6b6558"
-              style={{ opacity: mounted ? 1 : 0, transition: `opacity 300ms ease ${350 + i * 70}ms` }}
-            >
-              {d.label}
-            </text>
-          </g>
-        ) : null,
-      )}
-    </svg>
+    <MultiSeriesLineChart
+      series={[{ name: 'Value', data, color }]}
+      height={height}
+      formatValue={formatValue}
+    />
   );
 }
+
+/* ── BarChart ────────────────────────────────────────────────────────────── */
 
 interface BarChartProps {
   data: SeriesPoint[];
@@ -139,11 +234,19 @@ interface BarChartProps {
 }
 
 export function BarChart({ data, height = 220, color = '#3978ff', formatValue }: BarChartProps) {
+  if (!data || data.length < 1) {
+    return (
+      <div className="flex h-[220px] items-center justify-center border border-dashed border-ink/20">
+        <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">No data</span>
+      </div>
+    );
+  }
+
   const W = 600;
   const H = height;
   const PAD = { top: 16, right: 12, bottom: 30, left: 40 };
   const values = data.map((d) => d.value);
-  const max = Math.max(...values);
+  const max = Math.max(...values) || 1;
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
   const slot = innerW / data.length;
@@ -204,6 +307,8 @@ export function BarChart({ data, height = 220, color = '#3978ff', formatValue }:
   );
 }
 
+/* ── Sparkline ───────────────────────────────────────────────────────────── */
+
 interface SparklineProps {
   data: number[];
   width?: number;
@@ -211,7 +316,8 @@ interface SparklineProps {
   color?: string;
 }
 
-export function Sparkline({ data, width = 96, height = 32, color = 'var(--ds-accent)' }: SparklineProps) {
+export function Sparkline({ data, width = 96, height = 32, color = '#3978ff' }: SparklineProps) {
+  if (!data || data.length < 2) return null;
   const min = Math.min(...data);
   const max = Math.max(...data);
   const span = max - min || 1;
@@ -244,6 +350,8 @@ export function Sparkline({ data, width = 96, height = 32, color = 'var(--ds-acc
   );
 }
 
+/* ── Donut ───────────────────────────────────────────────────────────────── */
+
 interface DonutProps {
   data: { label: string; value: number }[];
   formatValue?: (v: number) => string;
@@ -254,6 +362,7 @@ const DONUT_COLORS = ['#3978ff', '#7928ca', '#50e3c2'];
 export function Donut({ data, formatValue }: DonutProps) {
   const mounted = useMounted();
   const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return null;
   const R = 60;
   const C = 2 * Math.PI * R;
   const starts: number[] = [];
@@ -304,8 +413,8 @@ export function Donut({ data, formatValue }: DonutProps) {
               <circle cx="5" cy="5" r="5" fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
             </svg>
             <div>
-              <p className="text-body-sm-strong text-ink">{d.label}</p>
-              <p className="font-mono text-caption-mono text-mute tabular-nums">
+              <p className="text-sm font-semibold text-ink">{d.label}</p>
+              <p className="font-mono text-xs text-ink-3 tabular-nums">
                 {formatValue ? formatValue(d.value) : d.value} · {Math.round((d.value / total) * 100)}%
               </p>
             </div>

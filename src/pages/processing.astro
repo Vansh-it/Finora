@@ -1,6 +1,5 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import FlowIndicator from '../components/ui/FlowIndicator.astro';
 import ProcessingFlow from '../components/flow/ProcessingFlow.tsx';
 
 const params = Astro.url.searchParams;
@@ -20,16 +19,12 @@ const periodLabel = periodMode === 'latest'
   title="Analyzing — Finora"
   description="Finora is analyzing the company and building your verified dashboard."
 >
-  <div class="mx-auto max-w-3xl px-6 py-16 md:px-8 md:py-24">
-    <div class="flex justify-center">
-      <FlowIndicator active={3} />
-    </div>
-
-    <div class="mt-12 text-center">
-      <p class="font-mono text-caption-mono uppercase tracking-wide text-accent">// processing</p>
-      <h1 class="mt-4 text-display-lg text-ink text-balance">Building your research.</h1>
-      <p class="mx-auto mt-4 max-w-xl text-body-md text-body">
-        Finora is reading public filings for <strong class="text-ink">{company}</strong>,
+  <div class="mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:px-0 lg:py-24">
+    <div class="text-center">
+      <p class="mb-3 font-mono text-xs tracking-[0.25em] text-ink-3 uppercase">// processing</p>
+      <h1 class="font-serif text-4xl font-medium tracking-tight text-ink sm:text-5xl text-balance">Building your research.</h1>
+      <p class="mx-auto mt-4 max-w-xl text-base leading-relaxed text-ink-2">
+        Finora is reading public filings for <strong class="text-ink font-semibold">{company}</strong>,
         covering {periodLabel}.
       </p>
     </div>
@@ -38,8 +33,8 @@ const periodLabel = periodMode === 'latest'
       <ProcessingFlow client:load company={company} sessionId={sessionId} />
     </div>
 
-    <p class="mx-auto mt-10 max-w-xl text-center font-mono text-caption-mono text-mute">
-      {objective ? `OBJECTIVE · ${objective}` : 'OBJECTIVE · CALCULATE KEY FINANCIAL METRICS'}
+    <p class="mx-auto mt-10 max-w-xl text-center font-mono text-[10px] font-semibold tracking-[0.2em] text-ink-3 uppercase">
+      {objective ? `Objective · ${objective}` : 'Objective · Calculate Key Financial Metrics'}
     </p>
   </div>
 </Layout>

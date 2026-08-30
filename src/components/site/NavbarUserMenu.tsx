@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../lib/auth';
+import { User } from 'lucide-react';
 
 export default function NavbarUserMenu() {
   const { user, signOut } = useAuth();
@@ -7,16 +8,16 @@ export default function NavbarUserMenu() {
 
   if (!user) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="hidden items-center gap-4 lg:flex">
         <a
           href="/signin"
-          className="inline-flex h-7 items-center rounded-sm px-3 text-button-md text-body transition-colors hover:text-ink"
+          className="font-mono text-xs font-semibold tracking-[0.15em] uppercase text-ink-2 transition-colors hover:text-ink"
         >
           Sign in
         </a>
         <a
           href="/signup"
-          className="inline-flex h-7 items-center rounded-sm bg-ink px-3 text-button-md text-canvas transition-opacity hover:opacity-90"
+          className="inline-flex h-8 items-center justify-center rounded-full border border-ink/50 px-4 font-mono text-xs font-bold tracking-wider text-ink transition-colors hover:border-ink hover:bg-ink hover:text-paper"
         >
           Sign up
         </a>
@@ -25,16 +26,13 @@ export default function NavbarUserMenu() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative hidden lg:block">
       <button
         type="button"
         onClick={() => setMenuOpen(!menuOpen)}
-        className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-canvas-soft-2 px-3 text-button-md text-ink transition-colors hover:bg-canvas-soft"
+        className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50 text-ink-2 transition-colors hover:border-ink hover:text-ink"
       >
-        <span className="h-4 w-4 rounded-full bg-accent text-[10px] font-bold text-canvas flex items-center justify-center">
-          {user.name?.charAt(0)?.toUpperCase() || user.email.charAt(0).toUpperCase()}
-        </span>
-        {user.name || user.email.split('@')[0]}
+        <User size={15} />
       </button>
 
       {menuOpen && (
@@ -43,19 +41,19 @@ export default function NavbarUserMenu() {
             className="fixed inset-0 z-40"
             onClick={() => setMenuOpen(false)}
           />
-          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-hairline bg-canvas p-2 shadow-l4">
-            <div className="px-3 py-2 border-b border-hairline mb-1">
-              <p className="text-body-sm-strong text-ink truncate">{user.name || 'User'}</p>
-              <p className="text-caption text-mute truncate">{user.email}</p>
+          <div className="absolute right-0 top-full z-50 mt-2 w-56 border border-ink bg-paper p-3 shadow-[3px_3px_0_0_rgba(17,17,17,0.15)]">
+            <div className="border-b border-ink/15 pb-2 mb-2">
+              <p className="font-mono text-xs font-bold tracking-wider text-ink">{user.name || 'User'}</p>
+              <p className="font-mono text-[10px] tracking-wider text-ink-3">{user.email}</p>
             </div>
             <a
               href="/chat"
-              className="block rounded-md px-3 py-2 text-body-sm text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink"
+              className="block px-3 py-2 font-mono text-xs font-semibold tracking-wider text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
               onClick={() => setMenuOpen(false)}
             >
               Open Chat
             </a>
-            <div className="border-t border-hairline mt-1 pt-1">
+            <div className="border-t border-ink/15 mt-2 pt-2">
               <button
                 type="button"
                 onClick={async () => {
@@ -63,7 +61,7 @@ export default function NavbarUserMenu() {
                   await signOut();
                   window.location.href = '/';
                 }}
-                className="w-full rounded-md px-3 py-2 text-left text-body-sm text-body transition-colors hover:bg-canvas-soft-2 hover:text-ink"
+                className="w-full px-3 py-2 text-left font-mono text-xs font-semibold tracking-wider text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
               >
                 Sign out
               </button>

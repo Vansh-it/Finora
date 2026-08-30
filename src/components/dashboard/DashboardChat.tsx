@@ -1,238 +1,151 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { X, ArrowUp, Sparkles } from 'lucide-react';
 import { getToken } from '../../lib/auth';
-
-const BACKEND_URL = '';
-
-interface DashboardChatProps {
-  sessionId: string;
-  companyName: string;
-  ticker: string;
-  isOpen: boolean;
-  onClose: () => void;
-}
+import SourceCitation from '../ui/SourceCitation';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  timestamp: number;
 }
 
-export default function DashboardChat({ sessionId, companyName, ticker, isOpen, onClose }: DashboardChatProps) {
+const SUGGESTED = [
+  'How did you calculate ROIC?',
+  'Why did margins change?',
+  'Explain this company simply.',
+  'What are the biggest risks?',
+  'Which numbers were cross-verified?',
+  'What does this valuation mean?',
+];
+
+export default function DashboardChat({ sessionId, open, onToggle }: { sessionId: string; open: boolean; onToggle: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 300);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [isOpen]);
+  }, [messages]);
 
-  // Auto-scroll on new messages
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages.length, scrollToBottom]);
-
-  const sendMessage = useCallback(async () => {
-    const text = input.trim();
-    if (!text || sending) return;
-
-    const userMsg: ChatMessage = { role: 'user', content: text, timestamp: Date.now() };
-    setMessages((prev) => [...prev, userMsg]);
+  async function ask(question: string) {
+    if (!question.trim() || loading) return;
+    const userMsg: ChatMessage = { role: 'user', content: question };
+    setMessages((m) => [...m, userMsg]);
     setInput('');
-    setSending(true);
+    setLoading(true);
 
     try {
       const token = getToken();
-      const res = await fetch(`${BACKEND_URL}/api/chat/dashboard`, {
+      const res = await fetch('/api/chat/dashboard', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          message: text,
-          session_id: sessionId,
-          history: messages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
-        }),
+        body: JSON.stringify({ message: question, session_id: sessionId, history: messages.slice(-8) }),
       });
-
       const data = await res.json();
-      if (data.error) {
-        setMessages((prev) => [...prev, {
-          role: 'assistant',
-          content: `Sorry, I couldn't process that: ${data.error}`,
-          timestamp: Date.now(),
-        }]);
-      } else {
-        setMessages((prev) => [...prev, {
-          role: 'assistant',
-          content: data.response,
-          timestamp: Date.now(),
-        }]);
-      }
+      setMessages((m) => [...m, { role: 'assistant', content: data.response || data.error || 'No response.' }]);
     } catch {
-      setMessages((prev) => [...prev, {
-        role: 'assistant',
-        content: 'Sorry, Finora is temporarily unable to respond. Please try again shortly.',
-        timestamp: Date.now(),
-      }]);
+      setMessages((m) => [...m, { role: 'assistant', content: 'Unable to connect to Finora. Please try again.' }]);
     } finally {
-      setSending(false);
+      setLoading(false);
     }
-  }, [input, sending, messages, sessionId]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  }, [sendMessage]);
-
-  if (!isOpen) return null;
+  }
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-[70] bg-black/30 backdrop-blur-sm md:hidden"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Chat panel */}
-      <div
-        className={`
-          fixed z-[75] bg-canvas shadow-l5 flex flex-col
-          inset-x-0 bottom-0 top-[15vh] rounded-t-xl
-          md:inset-y-0 md:left-auto md:right-0 md:top-0 md:bottom-0 md:w-[420px] md:rounded-t-none md:rounded-l-xl
-          transition-transform duration-300 ease-out
-        `}
+      {/* FAB */}
+      <button
+        onClick={onToggle}
+        className="fixed right-5 bottom-5 z-40 flex items-center gap-2 bg-ink px-5 py-3.5 font-mono text-xs font-bold tracking-widest text-paper uppercase shadow-[4px_4px_0_0_#E9FF32] transition-transform hover:-translate-y-0.5 sm:right-8 sm:bottom-8"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-4">
-          <div className="min-w-0">
-            <h3 className="text-body-sm-strong text-ink truncate">Ask Finora</h3>
-            <p className="text-caption text-mute truncate">
-              {companyName} ({ticker}) · Session context active
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-press flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-hairline bg-canvas text-body hover:text-ink"
-            aria-label="Close chat"
-          >
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
+        <Sparkles size={14} />
+        Ask Finora
+      </button>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
+      {/* Drawer */}
+      {open && (
+        <div className="fixed inset-0 z-[70] flex justify-end">
+          <button aria-label="Close chat" className="absolute inset-0 bg-ink/30" onClick={onToggle} />
+          <div className="relative flex h-full w-full max-w-lg flex-col border-l-2 border-ink bg-paper">
+            <div className="flex items-center justify-between border-b border-ink/15 p-5">
+              <div>
+                <p className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Finora Research Assistant</p>
+                <h2 className="font-serif text-xl font-semibold text-ink">Ask About This Research</h2>
               </div>
-              <p className="mt-3 text-body-sm-strong text-ink">Ask about {companyName}</p>
-              <p className="mt-1 text-caption text-mute">Finora knows this company's financials, metrics, and sources.</p>
-
-              <div className="mt-6 space-y-2 w-full max-w-xs">
-                {[
-                  'Why is ROE high?',
-                  'How was free cash flow calculated?',
-                  'Explain this dashboard simply.',
-                ].map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => { setInput(q); }}
-                    className="w-full rounded-lg border border-hairline bg-canvas px-3 py-2 text-left text-caption text-body hover:border-accent hover:bg-accent-soft hover:text-ink transition-colors"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
+              <button onClick={onToggle} aria-label="Close" className="text-ink-2 hover:text-ink">
+                <X size={20} />
+              </button>
             </div>
-          )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[85%] rounded-lg px-4 py-3 text-body-sm ${
-                  msg.role === 'user'
-                    ? 'bg-ink text-canvas'
-                    : 'bg-canvas-soft text-body shadow-l1'
-                }`}
-              >
-                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-              </div>
-            </div>
-          ))}
-
-          {sending && (
-            <div className="flex justify-start">
-              <div className="rounded-lg bg-canvas-soft px-4 py-3 shadow-l1">
-                <div className="flex items-center gap-2 text-caption text-mute">
-                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:150ms]" />
-                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:300ms]" />
+            <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-5">
+              {messages.length === 0 && (
+                <div>
+                  <p className="mb-3 font-mono text-[10px] font-semibold tracking-widest text-ink-3 uppercase">
+                    Suggested Questions
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {SUGGESTED.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => ask(q)}
+                        className="border border-ink/25 px-4 py-3 text-left text-sm text-ink-2 transition-colors hover:border-ink hover:text-ink"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {messages.map((m, i) => (
+                <div key={i}>
+                  {m.role === 'user' ? (
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] bg-ink px-5 py-3 text-sm text-paper sm:max-w-[70%]">{m.content}</div>
+                    </div>
+                  ) : (
+                    <div className="max-w-[95%] border border-ink/20 bg-paper p-5 sm:max-w-[80%] sm:p-6">
+                      <p className="text-sm leading-relaxed text-ink-2">{m.content}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="border border-ink/20 bg-paper px-5 py-3">
+                    <span className="font-mono text-xs text-ink-3 animate-pulse">Thinking&hellip;</span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
 
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="border-t border-hairline px-5 py-4">
-          <div className="flex gap-2 items-end">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={`Ask about ${companyName}...`}
-              rows={1}
-              className="flex-1 resize-none rounded-lg border border-hairline bg-canvas-soft px-3 py-2.5 text-body-sm text-ink placeholder:text-mute focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-              maxLength={2000}
-            />
-            <button
-              type="button"
-              onClick={sendMessage}
-              disabled={!input.trim() || sending}
-              className="btn-press flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ink text-canvas hover:opacity-90 disabled:opacity-40"
-              aria-label="Send message"
+            <form
+              onSubmit={(e) => { e.preventDefault(); ask(input); }}
+              className="flex items-center gap-2 border-t border-ink/15 p-4"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about this research..."
+                className="flex-1 border border-ink/25 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-ink"
+              />
+              <button
+                type="submit"
+                aria-label="Send"
+                disabled={loading || !input.trim()}
+                className="flex h-11 w-11 items-center justify-center bg-ink text-paper transition-colors hover:bg-ink-2 disabled:opacity-50"
+              >
+                <ArrowUp size={16} />
+              </button>
+            </form>
           </div>
-          <p className="mt-2 text-caption text-mute">
-            Contextual to this research session · Powered by Finora AI
-          </p>
         </div>
-      </div>
+      )}
     </>
   );
 }

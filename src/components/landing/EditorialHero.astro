@@ -1,0 +1,112 @@
+---
+import ResearchInput from '../search/SearchBar.tsx';
+import Annotation from '../ui/Annotation.astro';
+import SourceStamp from '../ui/SourceStamp.astro';
+import DocumentCard from '../ui/DocumentCard.astro';
+---
+
+<section class="relative overflow-hidden border-b border-ink/15">
+  <!-- Paper texture overlay -->
+  <div aria-hidden class="pointer-events-none absolute inset-0 opacity-[0.05] mix-blend-multiply" style="background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;)"></div>
+
+  <div class="relative mx-auto max-w-[1440px] px-4 pt-14 pb-20 sm:px-6 lg:px-10 lg:pt-20 lg:pb-28">
+    <div class="grid grid-cols-1 gap-12 lg:grid-cols-[1.3fr_0.9fr] lg:gap-8">
+      <!-- Left: headline + input -->
+      <div class="relative">
+        <p class="mb-5 font-mono text-xs font-semibold tracking-[0.3em] text-ink-3 uppercase">
+          AI Financial Research &amp; Intelligence
+        </p>
+        <h1 class="font-serif text-[13vw] leading-[0.94] font-medium tracking-tight text-ink sm:text-[8vw] lg:text-[4.6vw]">
+          Research<br />
+          the company.<br />
+          <span class="mark-highlight inline-block">Verify the numbers.</span>
+        </h1>
+
+        <p class="mt-8 max-w-xl text-base leading-relaxed text-ink-2 sm:text-lg">
+          Finora turns public filings into financial statements, institutional-grade metrics, valuation
+          analysis and explainable research — with every important figure traced back to its source.
+        </p>
+
+        <div class="mt-10 max-w-2xl">
+          <ResearchInput client:load />
+        </div>
+
+        <div class="mt-10 flex flex-wrap gap-x-10 gap-y-4">
+          <div class="font-mono text-[10px] leading-tight tracking-[0.18em] uppercase">
+            <div class="font-semibold text-ink-2">Source 01</div>
+            <div class="mt-0.5 text-ink-3">SEC EDGAR</div>
+          </div>
+          <div class="font-mono text-[10px] leading-tight tracking-[0.18em] uppercase">
+            <div class="font-semibold text-annotate-blue">Source 02</div>
+            <div class="mt-0.5 text-ink-3">Company IR</div>
+          </div>
+          <div class="font-mono text-[10px] leading-tight tracking-[0.18em] uppercase">
+            <div class="font-semibold text-ink-2">Market</div>
+            <div class="mt-0.5 text-ink-3">Twelve Data</div>
+          </div>
+          <div class="font-mono text-[10px] leading-tight tracking-[0.18em] uppercase">
+            <div class="font-semibold text-annotate-red">Analysis</div>
+            <div class="mt-0.5 text-ink-3">Finora AI</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: editorial collage -->
+      <div class="relative hidden min-h-[560px] lg:block">
+        <!-- 10-K card -->
+        <div class="absolute top-0 right-4 w-64 border border-ink/25 bg-paper p-4 shadow-[3px_3px_0_0_rgba(17,17,17,0.15)]" style="transform: rotate(-3deg)">
+          <div class="font-mono text-[9px] tracking-[0.2em] text-ink-3 uppercase">Form 10-K &middot; Annual Report</div>
+          <div class="mt-2 font-serif text-sm leading-snug text-ink">
+            &ldquo;Net sales increased 2% during fiscal 2025 compared to fiscal 2024...&rdquo;
+          </div>
+          <div class="mark-highlight mt-2 inline-block font-mono text-xs font-bold">$398.8B revenue</div>
+        </div>
+
+        <!-- ROIC formula card -->
+        <div class="absolute top-[190px] left-0 w-52 border border-ink/25 bg-paper p-4 shadow-[3px_3px_0_0_rgba(17,17,17,0.15)]" style="transform: rotate(2deg)">
+          <div class="font-mono text-[10px] leading-tight tracking-[0.18em] uppercase">
+            <div class="font-semibold text-annotate-blue">ROIC Formula</div>
+          </div>
+          <div class="mt-2 font-mono text-xs leading-relaxed text-ink">
+            ROIC =<br />
+            NOPAT / Invested Capital
+          </div>
+        </div>
+
+        <!-- Stock price card -->
+        <div class="absolute top-[230px] right-0 w-60 border border-ink/25 bg-paper p-4 shadow-[3px_3px_0_0_rgba(17,17,17,0.15)]" style="transform: rotate(-1.5deg)">
+          <div class="flex items-center justify-between">
+            <span class="font-mono text-[10px] tracking-widest text-ink-3 uppercase">NASDAQ &middot; AAPL</span>
+          </div>
+          <svg viewBox="0 0 120 40" class="mt-2 h-10 w-full">
+            <polyline points="0,32 15,28 30,30 45,20 60,22 75,12 90,15 105,6 120,8" fill="none" stroke="#111111" stroke-width="1.5" />
+          </svg>
+          <div class="mt-1 font-mono text-lg font-bold text-ink">$231.40</div>
+        </div>
+
+        <!-- SEC Verified stamp -->
+        <div class="absolute top-[420px] left-8">
+          <span class="inline-flex -rotate-2 items-center gap-1 rounded-[2px] border-2 border-annotate-green px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.15em] text-annotate-green uppercase">
+            SEC Verified
+          </span>
+        </div>
+
+        <!-- Cross-verification card -->
+        <div class="absolute bottom-0 right-10 w-56 border border-ink/25 bg-paper p-4 shadow-[3px_3px_0_0_rgba(17,17,17,0.15)]" style="transform: rotate(1deg)">
+          <div class="font-mono text-[10px] leading-tight tracking-[0.18em] uppercase">
+            <div class="font-semibold text-annotate-red">Cross-Verification</div>
+          </div>
+          <div class="mt-2 flex items-center gap-2 font-mono text-xs text-ink">
+            <span class="text-annotate-green">&#10003;</span>
+            9 sources &middot; 7 cross-verified
+          </div>
+        </div>
+
+        <!-- Connecting line SVG -->
+        <svg class="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 400 560" fill="none">
+          <path d="M 260 90 C 220 130, 190 150, 150 190" stroke="#3978FF" stroke-width="1.5" stroke-dasharray="4 4" />
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,40 @@
+---
+const PIPELINE = [
+  { n: '01', title: 'Identify', desc: 'Resolve the company & ticker to an authoritative filer.' },
+  { n: '02', title: 'Read', desc: 'Parse SEC 10-K, 10-Q and 8-K filings line by line.' },
+  { n: '03', title: 'Normalize', desc: 'Map disclosures into a consistent financial schema.' },
+  { n: '04', title: 'Calculate', desc: 'Derive ratios and metrics with documented formulas.' },
+  { n: '05', title: 'Verify', desc: 'Cross-check figures against independent sources.' },
+  { n: '06', title: 'Explain', desc: 'Produce a plain-language research memo.' },
+];
+---
+
+<section class="relative border-b border-ink/15 bg-paper-2">
+  <div aria-hidden class="pointer-events-none absolute inset-0 opacity-[0.05] mix-blend-multiply" style="background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;)"></div>
+
+  <div class="relative mx-auto max-w-[1440px] px-4 py-20 sm:px-6 lg:px-10">
+    <div class="text-center">
+      <p class="mb-3 font-mono text-xs tracking-[0.25em] text-ink-3 uppercase">How Finora Works</p>
+      <h2 class="font-serif text-3xl leading-[1.05] font-medium tracking-tight text-ink sm:text-4xl lg:text-5xl text-balance">
+        One question. Multiple sources.<br />
+        <span class="mark-highlight">One research record.</span>
+      </h2>
+    </div>
+
+    <div class="mt-14 grid grid-cols-2 gap-x-6 gap-y-12 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
+      {PIPELINE.map((step, i) => (
+        <div class="relative">
+          <div class="font-mono text-xs font-bold text-ink-3">{step.n}</div>
+          <div class="mt-2 flex h-20 w-full items-center justify-center border border-ink/25 bg-paper">
+            <span class="font-mono text-lg font-bold text-ink">{step.n}</span>
+          </div>
+          <h3 class="mt-3 font-serif text-lg font-semibold text-ink">{step.title}</h3>
+          <p class="mt-1 text-xs leading-snug text-ink-2">{step.desc}</p>
+          {i < PIPELINE.length - 1 && (
+            <span class="absolute top-6 -right-5 hidden text-ink-3 lg:block">&rarr;</span>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

@@ -6,135 +6,74 @@ import Layout from '../layouts/Layout.astro';
   title="Privacy Policy — Finora"
   description="Finora Privacy Policy. Learn how we handle your data, sessions, and research queries."
 >
-  <div class="mx-auto max-w-3xl px-6 py-16 md:px-8 md:py-24">
+  <div class="mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:px-10 lg:py-24">
     <div>
-      <p class="font-mono text-caption-mono uppercase tracking-wide text-accent">// legal</p>
-      <h1 class="mt-4 text-display-lg text-ink">Privacy Policy</h1>
-      <p class="mt-3 text-body-sm text-mute">Last updated: August 28, 2026</p>
+      <p class="mb-3 font-mono text-xs tracking-[0.25em] text-ink-3 uppercase">// legal</p>
+      <h1 class="font-serif text-4xl font-semibold tracking-tight text-ink sm:text-5xl">Privacy Policy</h1>
+      <p class="mt-3 font-mono text-[10px] font-semibold tracking-widest text-ink-3 uppercase">Last updated: August 28, 2026</p>
     </div>
 
-    <div class="prose mt-10 space-y-8 text-body-md text-body leading-relaxed">
+    <div class="mt-10 space-y-8 text-base leading-relaxed text-ink-2">
       <section>
-        <h2 class="text-display-sm text-ink">1. Introduction</h2>
-        <p>
-          This Privacy Policy explains how Finora Labs ("we", "us") collects, uses, and protects
-          information when you use the Finora financial research platform ("the Service").
-        </p>
-      </section>
-
-      <section>
-        <h2 class="text-display-sm text-ink">2. Information We Collect</h2>
-
-        <h3 class="mt-4 text-body-md-strong text-ink">Account Information</h3>
-        <p>
-          When you create an account, we collect your email address, name, and a hashed version of your
-          password. We do not store plaintext passwords.
-        </p>
-
-        <h3 class="mt-4 text-body-md-strong text-ink">Authentication &amp; Session Data</h3>
-        <p>
-          We maintain session tokens to keep you logged in. These tokens are stored locally in your
-          browser and expire after a period of inactivity.
-        </p>
-
-        <h3 class="mt-4 text-body-md-strong text-ink">Research Queries</h3>
-        <p>
-          When you research a company, we store the research parameters (company name, time period,
-          objective) and the resulting research session data. This includes extracted financial statements,
-          calculated metrics, source documents, and verification results.
-        </p>
-
-        <h3 class="mt-4 text-body-md-strong text-ink">Chat Messages</h3>
-        <p>
-          Chat messages are processed in real-time and are not permanently stored on our servers.
-          Conversation history is maintained only during your active session.
-        </p>
-
-        <h3 class="mt-4 text-body-md-strong text-ink">Usage Counters</h3>
-        <p>
-          We track research run counts and daily chat message counts per user to enforce usage limits.
-          These counters reset automatically.
-        </p>
-      </section>
-
-      <section>
-        <h2 class="text-display-sm text-ink">3. How We Use Your Information</h2>
-        <ul class="mt-3 list-inside list-disc space-y-2 pl-4">
-          <li>To provide and improve the research and analysis features</li>
-          <li>To enforce usage limits and prevent abuse</li>
-          <li>To authenticate your identity and maintain your session</li>
-          <li>To troubleshoot technical issues</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2 class="text-display-sm text-ink">4. Third-Party Services</h2>
-        <p>
-          Finora processes data through the following third-party services to provide its features:
-        </p>
-        <ul class="mt-3 list-inside list-disc space-y-2 pl-4">
-          <li><strong class="text-ink">SEC EDGAR</strong> — Public financial filing data (10-K, 10-Q, XBRL)</li>
-          <li><strong class="text-ink">NVIDIA API</strong> — AI language model processing for chat and summaries</li>
-          <li><strong class="text-ink">Twelve Data</strong> — Stock market price data</li>
-          <li><strong class="text-ink">Tavily</strong> — Web search for source discovery</li>
-          <li><strong class="text-ink">Jina</strong> — Web page content extraction</li>
-        </ul>
+        <h2 class="font-serif text-2xl font-semibold text-ink">1. Introduction</h2>
         <p class="mt-3">
-          Each third-party service has its own privacy policy. We encourage you to review their policies.
+          This Privacy Policy explains how Finora Labs collects, uses, and protects information
+          when you use the Finora financial research platform.
         </p>
       </section>
 
       <section>
-        <h2 class="text-display-sm text-ink">5. Cookies &amp; Storage</h2>
-        <p>
-          Finora uses local storage to maintain your authentication session and theme preferences.
-          We do not use tracking cookies or analytics cookies. The only stored items are:
-        </p>
-        <ul class="mt-3 list-inside list-disc space-y-2 pl-4">
-          <li><code class="rounded bg-canvas-soft px-1.5 py-0.5 text-code">finora-auth-token</code> — Your session token</li>
-          <li><code class="rounded bg-canvas-soft px-1.5 py-0.5 text-code">finora-theme</code> — Your light/dark theme preference</li>
+        <h2 class="font-serif text-2xl font-semibold text-ink">2. Information We Collect</h2>
+        <div class="mt-4 space-y-4">
+          <div>
+            <h3 class="font-mono text-xs font-bold tracking-wider text-ink">Account Information</h3>
+            <p class="mt-1">Email, name, and hashed password. We do not store plaintext passwords.</p>
+          </div>
+          <div>
+            <h3 class="font-mono text-xs font-bold tracking-wider text-ink">Session Data</h3>
+            <p class="mt-1">Session tokens stored in your browser, expiring after inactivity.</p>
+          </div>
+          <div>
+            <h3 class="font-mono text-xs font-bold tracking-wider text-ink">Research Queries</h3>
+            <p class="mt-1">Company name, time period, objective, and resulting research data.</p>
+          </div>
+          <div>
+            <h3 class="font-mono text-xs font-bold tracking-wider text-ink">Usage Counters</h3>
+            <p class="mt-1">Research run counts and daily chat message limits per user.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="font-serif text-2xl font-semibold text-ink">3. Third-Party Services</h2>
+        <p class="mt-3">Data is processed through:</p>
+        <ul class="mt-3 space-y-2">
+          <li class="flex items-start gap-2"><span class="text-annotate-green mt-1">&#10003;</span> <strong class="text-ink">SEC EDGAR</strong> — Public financial filing data</li>
+          <li class="flex items-start gap-2"><span class="text-annotate-green mt-1">&#10003;</span> <strong class="text-ink">NVIDIA API</strong> — AI language model processing</li>
+          <li class="flex items-start gap-2"><span class="text-annotate-green mt-1">&#10003;</span> <strong class="text-ink">Twelve Data</strong> — Stock market price data</li>
+          <li class="flex items-start gap-2"><span class="text-annotate-green mt-1">&#10003;</span> <strong class="text-ink">Tavily</strong> — Web search for source discovery</li>
+          <li class="flex items-start gap-2"><span class="text-annotate-green mt-1">&#10003;</span> <strong class="text-ink">Jina</strong> — Web page content extraction</li>
         </ul>
       </section>
 
       <section>
-        <h2 class="text-display-sm text-ink">6. Data Security</h2>
-        <p>
-          We implement reasonable security measures including HTTPS encryption, hashed passwords,
-          and input validation. However, no method of electronic storage is 100% secure. We cannot
-          guarantee absolute security.
+        <h2 class="font-serif text-2xl font-semibold text-ink">4. Cookies &amp; Storage</h2>
+        <p class="mt-3">
+          Finora uses local storage for authentication and theme preferences only. No tracking cookies.
         </p>
       </section>
 
       <section>
-        <h2 class="text-display-sm text-ink">7. Data Retention</h2>
-        <p>
-          Research session data is stored for a limited period to allow you to revisit your dashboards.
-          Account data is retained as long as your account is active. You may request data deletion
-          by contacting us.
+        <h2 class="font-serif text-2xl font-semibold text-ink">5. Data Security</h2>
+        <p class="mt-3">
+          We implement HTTPS encryption, hashed passwords, and input validation. No method is 100% secure.
         </p>
       </section>
 
       <section>
-        <h2 class="text-display-sm text-ink">8. Your Responsibilities</h2>
-        <p>
-          You are responsible for maintaining the confidentiality of your account credentials and for
-          all activity that occurs under your account.
-        </p>
-      </section>
-
-      <section>
-        <h2 class="text-display-sm text-ink">9. Changes to This Policy</h2>
-        <p>
-          We may update this Privacy Policy from time to time. Changes will be posted on this page
-          with an updated date. Your continued use of the Service after changes constitutes acceptance.
-        </p>
-      </section>
-
-      <section>
-        <h2 class="text-display-sm text-ink">10. Contact</h2>
-        <p>
-          Questions about this Privacy Policy? Contact us at
-          <a href="mailto:hello@finora.dev" class="text-accent hover:underline">hello@finora.dev</a>.
+        <h2 class="font-serif text-2xl font-semibold text-ink">6. Contact</h2>
+        <p class="mt-3">
+          Questions? Contact us at <a href="mailto:hello@finora.dev" class="font-semibold text-annotate-blue hover:underline">hello@finora.dev</a>.
         </p>
       </section>
     </div>

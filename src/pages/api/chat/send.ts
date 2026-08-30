@@ -16,7 +16,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
-    const user = getUserFromToken(token);
+    const user = await getUserFromToken(token);
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
         status: 401,
@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    const usage = recordChatMessage(user.user_id);
+    const usage = await recordChatMessage(user.user_id);
     return new Response(JSON.stringify(usage), {
       status: usage.allowed ? 200 : 429,
       headers: { 'Content-Type': 'application/json' },

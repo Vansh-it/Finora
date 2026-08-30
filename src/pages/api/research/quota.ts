@@ -16,7 +16,7 @@ export const GET: APIRoute = async ({ request }) => {
   }
 
   try {
-    const user = getUserFromToken(token);
+    const user = await getUserFromToken(token);
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
         status: 401,
@@ -24,7 +24,7 @@ export const GET: APIRoute = async ({ request }) => {
       });
     }
 
-    const quota = canUseResearch(user.user_id);
+    const quota = await canUseResearch(user.user_id);
     return new Response(JSON.stringify(quota), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

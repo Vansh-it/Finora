@@ -13,7 +13,7 @@ export const POST: APIRoute = async ({ request }) => {
         { status: 401, headers: { 'Content-Type': 'application/json' } },
       );
     }
-    signOut(token);
+    await signOut(token);
     return new Response(JSON.stringify({ status: 'signed_out' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

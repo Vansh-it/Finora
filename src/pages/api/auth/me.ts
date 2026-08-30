@@ -14,7 +14,7 @@ export const GET: APIRoute = async ({ request }) => {
       );
     }
 
-    const user = getUserFromToken(token);
+    const user = await getUserFromToken(token);
     if (!user) {
       return new Response(
         JSON.stringify({ error: 'Invalid or expired session' }),

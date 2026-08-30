@@ -16,7 +16,7 @@ export const POST: APIRoute = async ({ request }) => {
       );
     }
 
-    const user = getUserFromToken(token);
+    const user = await getUserFromToken(token);
     if (!user) {
       return new Response(
         JSON.stringify({ error: 'Invalid or expired session' }),
@@ -25,7 +25,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Check research quota
-    const quota = canUseResearch(user.user_id);
+    const quota = await canUseResearch(user.user_id);
     if (!quota.allowed) {
       return new Response(
         JSON.stringify({
@@ -51,7 +51,7 @@ export const POST: APIRoute = async ({ request }) => {
     let periodMode = body.period_mode ?? 'latest';
     if (periodMode !== 'specified' && periodMode !== 'latest') periodMode = 'latest';
 
-    const session = createSession(user.user_id, company, {
+    const session = await createSession(user.user_id, company, {
       period_mode: periodMode,
       start_year: body.start_year ?? null,
       end_year: body.end_year ?? null,

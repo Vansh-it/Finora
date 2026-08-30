@@ -24,7 +24,7 @@ export const GET: APIRoute = async ({ params }) => {
     // Fallback to Astro's own session store if Flask is unavailable
     try {
       const { getSession } = await import('../../../../lib/server/research-sessions');
-      const session = getSession(sessionId);
+      const session = await getSession(sessionId);
       if (!session) {
         return new Response(JSON.stringify({ error: 'Session not found' }), {
           status: 404,

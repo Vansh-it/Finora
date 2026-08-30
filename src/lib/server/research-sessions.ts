@@ -1,34 +1,12 @@
 /**
- * Server-side research session management — no Flask dependency.
- * Stores research sessions in JSON files on disk.
+ * Server-side research session management — Vercel-compatible storage.
+ * Upstash Redis in production, JSON files locally.
  */
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
-
-const DATA_DIR = path.resolve(process.cwd(), 'backend', 'data');
-
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function readJSON(name: string): Record<string, any> {
-  const p = path.join(DATA_DIR, name);
-  if (!fs.existsSync(p)) return {};
-  try {
-    const raw = fs.readFileSync(p, 'utf-8');
-    const data = JSON.parse(raw);
-    return typeof data === 'object' && data !== null ? data : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeJSON(name: string, data: Record<string, any>) {
-  ensureDir();
-  const p = path.join(DATA_DIR, name);
-  fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
-}
+import {
+  getItem, setItem, deleteItem, getAll,
+  NS_RESEARCH_SESSIONS, NS_USERS,
+} from './storage';
 
 export interface ResearchSession {
   session_id: string;
@@ -56,7 +34,7 @@ function toDict(session: ResearchSession): Record<string, any> {
   return { ...session };
 }
 
-export function createSession(
+export async function createSession(
   userId: string,
   company: string,
   opts: {
@@ -65,7 +43,7 @@ export function createSession(
     end_year?: number | null;
     objective?: string;
   } = {},
-): ResearchSession {
+): Promise<ResearchSession> {
   const sessionId = crypto.randomBytes(32).toString('hex');
   const session: ResearchSession = {
     session_id: sessionId,
@@ -89,152 +67,133 @@ export function createSession(
     valuation_metrics: null,
   };
 
-  const sessions = readJSON('research_sessions.json');
-  sessions[sessionId] = toDict(session);
-  writeJSON('research_sessions.json', sessions);
-
+  await setItem(NS_RESEARCH_SESSIONS, sessionId, toDict(session));
   return session;
 }
 
-export function getSession(sessionId: string): ResearchSession | null {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (!raw) return null;
-  return raw as ResearchSession;
+export async function getSession(sessionId: string): Promise<ResearchSession | null> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (!raw || !raw.session_id) return null;
+  return raw as unknown as ResearchSession;
 }
 
-export function updateSession(sessionId: string, updates: Partial<ResearchSession>): ResearchSession | null {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (!raw) return null;
+export async function updateSession(sessionId: string, updates: Partial<ResearchSession>): Promise<ResearchSession | null> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (!raw || !raw.session_id) return null;
   Object.assign(raw, updates);
-  writeJSON('research_sessions.json', sessions);
-  return raw as ResearchSession;
+  await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
+  return raw as unknown as ResearchSession;
 }
 
-export function updateSessionStatus(sessionId: string, status: string): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function updateSessionStatus(sessionId: string, status: string): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.status = status;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionCompanyMeta(sessionId: string, meta: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionCompanyMeta(sessionId: string, meta: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.company_meta = meta;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionDocumentRegistry(sessionId: string, registry: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionDocumentRegistry(sessionId: string, registry: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.document_registry = registry;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionFinancialStatements(sessionId: string, statements: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionFinancialStatements(sessionId: string, statements: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.financial_statements = statements;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionCalculatedMetrics(sessionId: string, metrics: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionCalculatedMetrics(sessionId: string, metrics: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.calculated_metrics = metrics;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionSourceRegistry(sessionId: string, registry: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionSourceRegistry(sessionId: string, registry: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.source_registry = registry;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionVerificationResults(sessionId: string, results: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionVerificationResults(sessionId: string, results: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.verification_results = results;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionExecutiveSummary(sessionId: string, summary: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionExecutiveSummary(sessionId: string, summary: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.executive_summary = summary;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionMarketData(sessionId: string, data: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionMarketData(sessionId: string, data: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.market_data = data;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionValuationMetrics(sessionId: string, metrics: Record<string, any>): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionValuationMetrics(sessionId: string, metrics: Record<string, any>): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.valuation_metrics = metrics;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function setSessionError(sessionId: string, error: string): void {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (raw) {
+export async function setSessionError(sessionId: string, error: string): Promise<void> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (raw && raw.session_id) {
     raw.status = 'error';
     raw.error = error;
-    writeJSON('research_sessions.json', sessions);
+    await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   }
 }
 
-export function cancelSession(sessionId: string): boolean {
-  const sessions = readJSON('research_sessions.json');
-  const raw = sessions[sessionId];
-  if (!raw) return false;
+export async function cancelSession(sessionId: string): Promise<boolean> {
+  const raw = await getItem(NS_RESEARCH_SESSIONS, sessionId);
+  if (!raw || !raw.session_id) return false;
   raw.status = 'cancelled';
-  writeJSON('research_sessions.json', sessions);
+  await setItem(NS_RESEARCH_SESSIONS, sessionId, raw);
   return true;
 }
 
-export function incrementResearchRuns(userId: string): boolean {
-  const users = readJSON('users.json');
-  const user = users[userId];
-  if (!user) return false;
-  if (user.research_runs_used >= user.research_runs_limit) return false;
-  user.research_runs_used += 1;
-  writeJSON('users.json', users);
+export async function incrementResearchRuns(userId: string): Promise<boolean> {
+  const user = await getItem(NS_USERS, userId);
+  if (!user || !user.user_id) return false;
+  if ((user.research_runs_used ?? 0) >= (user.research_runs_limit ?? 5)) return false;
+  user.research_runs_used = (user.research_runs_used ?? 0) + 1;
+  await setItem(NS_USERS, userId, user);
   return true;
 }
 
-export function canUseResearch(userId: string) {
-  const users = readJSON('users.json');
-  const user = users[userId];
-  if (!user) {
+export async function canUseResearch(userId: string) {
+  const user = await getItem(NS_USERS, userId);
+  if (!user || !user.user_id) {
     return { allowed: false, remaining: 0, limit: 5, used: 0, reason: 'User not found' };
   }
   const remaining = Math.max(0, (user.research_runs_limit ?? 5) - (user.research_runs_used ?? 0));

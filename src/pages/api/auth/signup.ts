@@ -17,7 +17,7 @@ export const POST: APIRoute = async ({ request }) => {
       );
     }
 
-    const result = signUp(email, password, name);
+    const result = await signUp(email, password, name);
     return new Response(JSON.stringify(result), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

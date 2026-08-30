@@ -6,7 +6,7 @@ import type { HeroExample } from '../../data/site';
 const BACKEND_URL = '';
 
 interface Props {
-  examples: HeroExample[];
+  examples?: HeroExample[];
   id?: string;
 }
 
@@ -40,7 +40,7 @@ const INTERPRETATION_STEPS = [
   'Preparing research plan…',
 ];
 
-export default function SearchBar({ examples, id = 'hero-search' }: Props) {
+export default function SearchBar({ examples = [], id = 'hero-search' }: Props) {
   const { token, user } = useAuth();
   const [query, setQuery] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');

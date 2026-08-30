@@ -1,6 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Kpi } from '../../data/microsoft';
 
+const BEGINNER_EXPLANATIONS: Record<string, string> = {
+  'revenue': 'Revenue is the total amount of money a company earns from selling its products or services. It\'s the "top line" — the starting point for measuring business performance.',
+  'net-income': 'Net income is the company\'s bottom-line profit — what\'s left after subtracting ALL expenses, taxes, and costs from revenue. This is the money that belongs to shareholders.',
+  'op-income': 'Operating income shows how much profit the company makes from its core business operations, before accounting for interest, taxes, and one-time items.',
+  'eps': 'Earnings Per Share (EPS) shows how much profit is attributed to each share of stock. It\'s one of the most important metrics investors track.',
+  'fcf': 'Free cash flow is the cash the company generates after spending on equipment and buildings. This is real money available for dividends, debt repayment, or growth investments.',
+  'gross-margin': 'Gross margin shows what percentage of revenue remains after subtracting the direct cost of making products. A higher margin means more efficient production.',
+  'operating-margin': 'Operating margin shows what percentage of revenue remains after paying all operating costs — salaries, rent, marketing, R&D, and other expenses to run the business.',
+  'net-margin': 'Net margin (profit margin) shows what percentage of each dollar of revenue becomes actual profit after ALL expenses. This is the bottom line per dollar earned.',
+  'roa': 'Return on Assets (ROA) measures how efficiently a company uses its assets to generate profit. Think of it as: for every dollar of assets, how much profit did the company make?',
+  'roe': 'Return on Equity (ROE) measures how efficiently a company generates profit from shareholders\' capital. A higher ROE can indicate stronger capital efficiency, but should be interpreted alongside leverage and industry characteristics.',
+  'roic': 'Return on Invested Capital (ROIC) measures how well a company uses all its capital — both debt and equity — to generate profits. It\'s considered one of the most important metrics for evaluating a company\'s true economic performance.',
+  'current-ratio': 'The current ratio measures whether a company has enough short-term assets to cover its short-term bills. A ratio above 1.0 means it can pay its near-term obligations.',
+  'quick-ratio': 'The quick ratio is a stricter version of the current ratio — it excludes inventory, which might be hard to sell quickly. It tests whether a company can pay bills without selling inventory.',
+  'debt-to-equity': 'Debt-to-equity shows how much the company relies on borrowed money versus shareholder money. Higher ratios mean more financial leverage and potentially more risk.',
+  'ebitda': 'EBITDA is a measure of operating profitability that removes the effects of financing decisions (interest), government take (taxes), and accounting choices (depreciation/amortization).',
+};
+
+function getBeginnerExplanation(kpiId: string): string {
+  return BEGINNER_EXPLANATIONS[kpiId] || '';
+}
+
 export default function VerificationModal() {
   const [kpi, setKpi] = useState<Kpi | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -127,6 +149,13 @@ export default function VerificationModal() {
             <p className="font-mono text-caption-mono uppercase tracking-wide text-mute">How it’s calculated</p>
             <p className="mt-1.5 text-body-sm text-body">{kpi.verification.explanation}</p>
           </div>
+
+          {getBeginnerExplanation(kpi.id) && (
+            <div className="rounded-sm border border-accent/20 bg-accent-soft p-4">
+              <p className="font-mono text-caption-mono uppercase tracking-wide text-accent">What does this mean?</p>
+              <p className="mt-2 text-body-sm text-body leading-relaxed">{getBeginnerExplanation(kpi.id)}</p>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 flex items-center gap-2 border-t border-hairline pt-4">

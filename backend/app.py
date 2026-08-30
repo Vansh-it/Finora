@@ -1024,6 +1024,22 @@ FINORA_SYSTEM_PROMPT = (
     "You are especially useful for finance, company analysis, and research."
 )
 
+FINORA_DASHBOARD_CHAT_PROMPT_TEMPLATE = (
+    "You are Finora, a professional financial analyst AI assistant. "
+    "You are currently helping a user who is viewing a financial research dashboard. "
+    "Answer questions about this company using the research data provided below. "
+    "Be concise, professional, and helpful. "
+    "Reference specific numbers, formulas, inputs, and sources from the research data. "
+    "When answering how a metric was calculated, use the Formula and Calculation fields from the data. "
+    "When answering about unavailable metrics, explain which inputs were missing. "
+    "Never fabricate financial figures — only use data from the provided context. "
+    "If the user asks about something not in the data, say so clearly. "
+    "If the user asks to research a different company, tell them to use the main research page. "
+    "Adapt your response complexity based on the question: simple questions get beginner-friendly answers, "
+    "analytical questions get professional analysis. "
+    "Finora is a research tool, not investment advice or a stock recommendation service."
+)
+
 
 @app.post("/api/chat")
 def api_chat():
@@ -1082,6 +1098,149 @@ def api_chat():
             "elapsed_ms": elapsed_ms,
         })
 
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError:
+        return jsonify({
+            "error": "Finora is temporarily unable to respond. Please try again shortly.",
+            "status": "error",
+        }), 502
+
+
+@app.post("/api/chat/dashboard")
+def api_dashboard_chat():
+    """Contextual dashboard chat — the assistant knows the current research session."""
+    body = request.get_json(silent=True) or {}
+    message = body.get("message", "")
+    session_id = body.get("session_id", "")
+    history = body.get("history", [])
+
+    if not isinstance(message, str) or not message.strip():
+        return jsonify({"error": "Missing or empty 'message' field"}), 400
+    message = message.strip()
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return jsonify({"error": f"Message too long. Maximum {MAX_MESSAGE_LENGTH} characters."}), 400
+
+    # Build session context for the LLM
+    session_context = ""
+    if session_id:
+        session = get_session(session_id)
+        if session:
+            # Compact session context
+            meta = session.company_meta or {}
+            stmts = session.financial_statements or {}
+            metrics = session.calculated_metrics or {}
+            valuation = session.valuation_metrics or {}
+            summary = session.executive_summary or {}
+            verification = session.verification_results or {}
+
+            periods = stmts.get("periods", [])
+            latest = periods[-1] if periods else ""
+
+            # Company info
+            ctx_parts = [
+                f"Company: {meta.get('name', session.company)} ({meta.get('ticker', '')})",
+                f"Ticker: {meta.get('ticker', '')}  Exchange: {meta.get('exchange', '')}",
+                f"Periods: {', '.join(periods)}",
+                f"Latest period: {latest}",
+            ]
+
+            # Key financials
+            income = stmts.get("income_statement", {})
+            if latest:
+                for key in ["revenue", "gross_profit", "operating_income", "net_income", "diluted_eps"]:
+                    fact = income.get(key, {})
+                    if isinstance(fact, dict) and latest in fact:
+                        val = fact[latest].get("value")
+                        if val is not None:
+                            ctx_parts.append(f"{key}: ${val/1e9:.1f}B" if abs(val) >= 1e9 else f"{key}: ${val:.2f}")
+                    elif isinstance(fact, dict) and "value" in fact:
+                        val = fact["value"]
+                        if val is not None:
+                            ctx_parts.append(f"{key}: ${val/1e9:.1f}B" if abs(val) >= 1e9 else f"{key}: ${val:.2f}")
+
+            # Calculated metrics with methodology
+            annual = metrics.get("annual_metrics", {})
+            if latest and latest in annual:
+                for mid in ["gross_margin", "operating_margin", "net_margin", "roa", "roe", "roic",
+                           "free_cash_flow", "current_ratio", "debt_to_equity", "roce",
+                           "ebitda", "ebitda_margin", "fcf_margin", "cash_conversion",
+                           "interest_coverage", "debt_to_ebitda", "asset_turnover"]:
+                    m = annual[latest].get(mid, {})
+                    if isinstance(m, dict) and m.get("status") == "calculated":
+                        calc_str = m.get('calculation', '')
+                        formula_str = m.get('formula', '')
+                        ctx_parts.append(
+                            f"{mid}: {m.get('display_value', '')} | "
+                            f"Formula: {formula_str} | "
+                            f"Calculation: {calc_str}"
+                        )
+                # Also include growth metrics
+                growth = metrics.get("growth_metrics", {})
+                for glbl, gm_group in growth.items():
+                    for mid in ["revenue_growth", "net_income_growth", "eps_growth"]:
+                        m = gm_group.get(mid, {})
+                        if isinstance(m, dict) and m.get("status") == "calculated":
+                            ctx_parts.append(f"{mid} ({glbl}): {m.get('display_value', '')}")
+                # Unavailable metrics
+                for mid, m in annual[latest].items():
+                    if isinstance(m, dict) and m.get("status") == "unavailable":
+                        ctx_parts.append(f"{mid}: UNAVAILABLE — {m.get('reason', 'unknown')}")
+
+            # Valuation
+            val_metrics = valuation.get("valuation_metrics", {})
+            for vm in ["share_price", "market_cap", "pe_ratio", "ev_to_revenue"]:
+                m = val_metrics.get(vm, {})
+                if isinstance(m, dict) and m.get("status") == "calculated":
+                    ctx_parts.append(f"{vm}: {m.get('display_value', '')}")
+
+            # Executive summary overview
+            if summary.get("executive_overview"):
+                ctx_parts.append(f"\nExecutive Summary: {summary['executive_overview'][:500]}")
+
+            # Key findings
+            if summary.get("highlights"):
+                for h in summary["highlights"][:3]:
+                    ctx_parts.append(f"Highlight: {h.get('title', '')} — {h.get('text', '')[:200]}")
+
+            # Data quality
+            ver_summary = verification.get("summary", {})
+            cross = ver_summary.get("exact_matches", 0) + ver_summary.get("within_tolerance", 0)
+            if cross > 0:
+                ctx_parts.append(f"\nData Quality: {cross} metrics cross-verified against external sources.")
+
+            session_context = "\n".join(ctx_parts)
+
+    # Build prompt
+    prompt_parts = [
+        f"System: {FINORA_DASHBOARD_CHAT_PROMPT_TEMPLATE}",
+        f"\n--- RESEARCH DATA ---\n{session_context}\n--- END RESEARCH DATA ---",
+    ]
+
+    # Add conversation history
+    for msg in history[-8:]:
+        role = msg.get("role", "user")
+        content = str(msg.get("content", ""))[:500]
+        if role in ("user", "assistant"):
+            label = "User" if role == "user" else "Assistant"
+            prompt_parts.append(f"{label}: {content}")
+
+    prompt_parts.append(f"User: {message}")
+    prompt_parts.append("Assistant:")
+    prompt = "\n".join(prompt_parts)
+
+    manager = get_manager()
+    start_time = time.time()
+
+    try:
+        text = manager.generate_text(prompt)
+        elapsed_ms = round((time.time() - start_time) * 1000)
+        return jsonify({
+            "response": text,
+            "model_used": manager.get_status()["active_provider"],
+            "status": "success",
+            "elapsed_ms": elapsed_ms,
+        })
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except RuntimeError:

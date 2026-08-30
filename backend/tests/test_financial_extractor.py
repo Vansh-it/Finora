@@ -169,37 +169,54 @@ class TestPeriodHelpers:
         assert "FY2025" in label
 
 
-# ── Latest mode extraction ───────────────────────────────────────────────────
+# ── Latest mode extraction (now returns period-keyed dict with top 3 years) ──
 class TestLatestExtraction:
+    def _get_latest_fact(self, stmt_data, metric):
+        """Helper to get the latest period fact from multi-period dict."""
+        data = stmt_data.get(metric)
+        if data is None:
+            return None
+        # New format: period-keyed dict
+        if isinstance(data, dict) and "period" not in data:
+            # Get the latest period
+            latest = None
+            for period_key, fact in data.items():
+                if fact is not None and isinstance(fact, dict):
+                    if latest is None or period_key > latest.get("period", ""):
+                        latest = fact
+            return latest
+        # Legacy format: single fact dict
+        return data
+
     def test_msft_revenue(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            rev = stmts.income_statement.get("revenue")
+            rev = self._get_latest_fact(stmts.income_statement, "revenue")
             assert rev is not None
             assert rev["value"] == 245122000000
             assert rev["unit"] == "USD"
-            assert rev["xbrl_concept"] == "Revenues"
+            assert rev["xbrl_concept"] in ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues")
             assert rev["source"] == "SEC XBRL"
             assert "FY2025" in rev["period"]
 
     def test_msft_operating_income(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            oi = stmts.income_statement.get("operating_income")
+            oi = self._get_latest_fact(stmts.income_statement, "operating_income")
             assert oi is not None
             assert oi["value"] == 109433000000
 
     def test_msft_net_income(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            ni = stmts.income_statement.get("net_income")
+            ni = self._get_latest_fact(stmts.income_statement, "net_income")
             assert ni is not None
             assert ni["value"] == 88136000000
 
     def test_msft_eps(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            eps = stmts.income_statement.get("diluted_eps")
+            eps = self._get_latest_fact(stmts.income_statement, "diluted_eps")
             assert eps is not None
             assert eps["value"] == 11.82
             assert eps["unit"] == "USD/shares"
@@ -207,51 +224,62 @@ class TestLatestExtraction:
     def test_msft_gross_profit(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            gp = stmts.income_statement.get("gross_profit")
+            gp = self._get_latest_fact(stmts.income_statement, "gross_profit")
             assert gp is not None
             assert gp["value"] == 171008000000
 
     def test_msft_total_assets(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            assets = stmts.balance_sheet.get("total_assets")
+            assets = self._get_latest_fact(stmts.balance_sheet, "total_assets")
             assert assets is not None
             assert assets["value"] == 414011000000
 
     def test_msft_liabilities(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            liab = stmts.balance_sheet.get("total_liabilities")
+            liab = self._get_latest_fact(stmts.balance_sheet, "total_liabilities")
             assert liab is not None
             assert liab["value"] == 205567000000
 
     def test_msft_equity(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            eq = stmts.balance_sheet.get("shareholders_equity")
+            eq = self._get_latest_fact(stmts.balance_sheet, "shareholders_equity")
             assert eq is not None
             assert eq["value"] == 208444000000
 
     def test_msft_cash(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            cash = stmts.balance_sheet.get("cash_and_equivalents")
+            cash = self._get_latest_fact(stmts.balance_sheet, "cash_and_equivalents")
             assert cash is not None
             assert cash["value"] == 25854000000
 
     def test_msft_operating_cash_flow(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            ocf = stmts.cash_flow.get("operating_cash_flow")
+            ocf = self._get_latest_fact(stmts.cash_flow, "operating_cash_flow")
             assert ocf is not None
             assert ocf["value"] == 123360000000
 
     def test_msft_capex(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            capex = stmts.cash_flow.get("capital_expenditures")
+            capex = self._get_latest_fact(stmts.cash_flow, "capital_expenditures")
             assert capex is not None
             assert capex["value"] == -35209000000
+
+    def test_multi_period_format(self):
+        """Latest mode now returns period-keyed dict for growth support."""
+        with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
+            stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
+            rev = stmts.income_statement.get("revenue")
+            assert isinstance(rev, dict)
+            assert "FY2025" in rev
+            assert "FY2024" in rev
+            assert rev["FY2025"]["value"] == 245122000000
+            assert rev["FY2024"]["value"] == 211915000000
 
 
 # ── Specified period extraction ──────────────────────────────────────────────
@@ -301,7 +329,10 @@ class TestEdgeCases:
     def test_evidence_metadata(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
-            rev = stmts.income_statement["revenue"]
+            rev_data = stmts.income_statement["revenue"]
+            # Multi-period format: get the latest period fact
+            rev = rev_data.get("FY2025") if isinstance(rev_data, dict) and "period" not in rev_data else rev_data
+            assert rev is not None
             assert "accession_number" in rev
             assert "filing_date" in rev
             assert "xbrl_concept" in rev
@@ -329,7 +360,12 @@ class TestEdgeCases:
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):
             stmts = extract_financials("0000789019", "MICROSOFT CORP", "MSFT", "latest")
             div = stmts.cash_flow.get("dividends_paid")
-            assert div is None
+            # Multi-period: returns dict of {period: None} or None
+            if div is not None:
+                # All values should be None for missing metrics
+                assert all(v is None for v in div.values()) if isinstance(div, dict) else div is None
+            else:
+                assert div is None
 
     def test_company_metadata(self):
         with patch("lib.financial_extractor.get_company_facts", return_value=MOCK_MSFT_FACTS):

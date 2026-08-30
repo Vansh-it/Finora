@@ -16,39 +16,46 @@ from typing import Any, Optional
 
 INCOME_STATEMENT_CONCEPTS: dict[str, list[str]] = {
     "revenue": [
-        "Revenues",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
         "SalesRevenueNet",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
         "OperatingRevenue",
         "NetRevenues",
         "TotalRevenue",
+        "SalesRevenueGoodsNet",
+        "SalesRevenueServicesNet",
     ],
     "cost_of_revenue": [
         "CostOfRevenue",
         "CostOfGoodsAndServicesSold",
         "CostOfGoodsSold",
         "CostOfSales",
+        "CostOfRevenueExcludingDepreciationAndAmortization",
+        "CostOfGoodsSoldAndOperatingExpensesExcludingDepreciation",
     ],
     "gross_profit": [
         "GrossProfit",
     ],
     "operating_income": [
         "OperatingIncomeLoss",
-        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
     ],
     "pretax_income": [
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
-        "IncomeTaxExpenseBenefit",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxes",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesAndDiscontinuedOperations",
     ],
     "income_tax_expense": [
         "IncomeTaxExpenseBenefit",
         "IncomeTaxes",
         "FederalIncomeTaxExpense",
+        "IncomeTaxExpenseBenefitOtherThanFederalIncomeTax",
     ],
     "net_income": [
         "NetIncomeLoss",
         "ProfitLoss",
+        "NetIncomeLossAttributableToParent",
+        "NetIncomeLossAttributableToNoncontrollingInterest",
     ],
     "diluted_eps": [
         "EarningsPerShareDiluted",
@@ -65,17 +72,20 @@ BALANCE_SHEET_CONCEPTS: dict[str, list[str]] = {
         "CashAndCashEquivalentsAtCarryingValue",
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
         "CashAndCashEquivalents",
+        "CashCashEquivalentsAndShortTermInvestments",
     ],
     "short_term_investments": [
         "ShortTermInvestments",
         "MarketableSecuritiesCurrent",
         "AvailableForSaleSecuritiesCurrent",
         "InvestmentsCurrent",
+        "MarketableSecurities",
     ],
     "accounts_receivable": [
         "AccountsReceivableNetCurrent",
         "AccountsReceivableNet",
         "ReceivablesNetCurrent",
+        "TradeReceivablesNetCurrent",
     ],
     "inventory": [
         "InventoryNet",
@@ -92,6 +102,7 @@ BALANCE_SHEET_CONCEPTS: dict[str, list[str]] = {
         "AccountsPayableCurrent",
         "AccountsPayable",
         "AccountsPayableAccruedLiabilitiesAndOtherLiabilitiesCurrent",
+        "AccountsPayableAndAccruedLiabilitiesCurrent",
     ],
     "current_liabilities": [
         "LiabilitiesCurrent",
@@ -104,17 +115,20 @@ BALANCE_SHEET_CONCEPTS: dict[str, list[str]] = {
         "DebtCurrent",
         "LongTermDebtCurrent",
         "LongTermDebtAndCapitalLeaseObligationsCurrent",
+        "DebtInstrumentCurrent",
     ],
     "long_term_debt": [
         "LongTermDebtNoncurrent",
         "LongTermDebt",
         "LongTermDebtAndCapitalLeaseObligations",
         "LongTermDebtAndCapitalLeaseObligationsNoncurrent",
+        "LongTermDebtNetNoncurrent",
     ],
     "shareholders_equity": [
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
         "TotalStockholdersEquity",
+        "StockholdersEquityOrOwnersEquityIncludingPortionAttributableToNoncontrollingInterest",
     ],
 }
 
@@ -128,6 +142,8 @@ CASH_FLOW_CONCEPTS: dict[str, list[str]] = {
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "CapitalExpenditures",
         "PaymentsForCapitalImprovements",
+        "PaymentsToAcquireDevelopedTechnology",
+        "AcquisitionsNetOfCashAcquired",
     ],
     "investing_cash_flow": [
         "NetCashProvidedByUsedInInvestingActivities",
@@ -141,17 +157,20 @@ CASH_FLOW_CONCEPTS: dict[str, list[str]] = {
         "PaymentsOfDividends",
         "DividendsPaid",
         "Dividends",
+        "DividendsCommonStock",
     ],
     "share_repurchases": [
         "PaymentsForRepurchaseOfCommonStock",
-        "ShareBasedCompensation",
         "RepurchaseOfCapitalStock",
+        "PaymentsForRepurchaseOfEquity",
+        "ShareBasedCompensation",
     ],
     "depreciation_amortization": [
         "DepreciationDepletionAndAmortization",
         "DepreciationAndAmortization",
         "DepreciationAmortizationAndAccretionNet",
         "Depreciation",
+        "DepreciationAndAmortizationExpense",
         "AmortizationOfIntangibleAssets",
         "AmortizationOfDebtIssuanceCosts",
     ],
@@ -159,6 +178,7 @@ CASH_FLOW_CONCEPTS: dict[str, list[str]] = {
         "InterestExpense",
         "InterestExpenseDebt",
         "InterestAndDebtExpense",
+        "InterestExpenseNet",
     ],
 }
 
@@ -171,6 +191,7 @@ ADDITIONAL_CONCEPTS: dict[str, list[str]] = {
         "EarningsPerShareDilutedSharesOutstanding",
         "WeightedAverageNumberOfDilutedSharesOutstanding",
         "DilutedWeightedAverageSharesOutstanding",
+        "CommonStockDilutedSharesOutstanding",
     ],
     "weighted_average_shares_basic": [
         "EarningsPerShareBasicSharesOutstanding",

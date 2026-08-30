@@ -18,7 +18,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from lib.metric_methodology import METODOLOGY
+from lib.metric_methodology import METODOLOGY, get_beginner_explanation
+from lib.xbrl_mapper import INCOME_STATEMENT_CONCEPTS, BALANCE_SHEET_CONCEPTS, CASH_FLOW_CONCEPTS, ADDITIONAL_CONCEPTS
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1055,23 +1056,55 @@ def calculate_metrics(statements: dict) -> dict[str, Any]:
     }
 
     # ── Metadata ──
-    total = 0
-    calculated = 0
-    for pm in annual_metrics.values():
-        for m in pm.values():
-            total += 1
+    # Count unique metric types, not per-period duplicates
+    latest_period = sorted_periods[-1] if sorted_periods else (periods[-1] if periods else "")
+    unique_metric_ids: set[str] = set()
+    calculated_count = 0
+    unavailable_count = 0
+    unavailable_details: list[dict] = []
+
+    if latest_period and latest_period in annual_metrics:
+        for mid, m in annual_metrics[latest_period].items():
+            unique_metric_ids.add(mid)
             if m.get("status") == "calculated":
-                calculated += 1
-    for gm in growth_metrics.values():
-        for m in gm.values():
-            total += 1
+                calculated_count += 1
+            else:
+                unavailable_count += 1
+                unavailable_details.append({
+                    "metric_id": mid,
+                    "status": "unavailable",
+                    "reason": m.get("reason", "Required input unavailable"),
+                })
+
+    # Also count growth/cagr metrics
+    for gm_group in growth_metrics.values():
+        for mid, m in gm_group.items():
+            unique_metric_ids.add(mid)
             if m.get("status") == "calculated":
-                calculated += 1
-    for cm in cagr_metrics.values():
-        for m in cm.values():
-            total += 1
+                calculated_count += 1
+            else:
+                unavailable_count += 1
+                unavailable_details.append({
+                    "metric_id": mid,
+                    "status": "unavailable",
+                    "reason": m.get("reason", "Required input unavailable"),
+                })
+
+    for cm_group in cagr_metrics.values():
+        for mid, m in cm_group.items():
+            unique_metric_ids.add(mid)
             if m.get("status") == "calculated":
-                calculated += 1
+                calculated_count += 1
+            else:
+                unavailable_count += 1
+                unavailable_details.append({
+                    "metric_id": mid,
+                    "status": "unavailable",
+                    "reason": m.get("reason", "Required input unavailable"),
+                })
+
+    total_metrics = calculated_count + unavailable_count
+    extraction_meta = statements.get("metadata", {})
 
     return {
         "company": company,
@@ -1082,9 +1115,16 @@ def calculate_metrics(statements: dict) -> dict[str, Any]:
         "categories": categories,
         "metadata": {
             "calculation_engine": "Finora Financial Calculator v2.0",
-            "total_metrics_attempted": total,
-            "metrics_calculated": calculated,
-            "metrics_unavailable": total - calculated,
+            "total_metrics_attempted": total_metrics,
+            "metrics_calculated": calculated_count,
+            "metrics_unavailable": unavailable_count,
+            "completeness": {
+                "required_inputs": len(INCOME_STATEMENT_CONCEPTS) + len(BALANCE_SHEET_CONCEPTS) + len(CASH_FLOW_CONCEPTS) + len(ADDITIONAL_CONCEPTS),
+                "found_primary": extraction_meta.get("metrics_extracted", 0),
+                "found_fallback": 0,
+                "unavailable": unavailable_count,
+            },
+            "unavailable_details": unavailable_details,
             "methodology": "Finora standard methodology — see metric_methodology.py",
         },
     }

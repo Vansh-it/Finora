@@ -15,7 +15,7 @@ export interface HeroExample {
 
 export const heroExamples: HeroExample[] = [
   {
-    label: 'Research any company',
+    label: 'Research any US company',
     company: 'Microsoft',
     from: '',
     to: '',
@@ -135,7 +135,7 @@ export const faqs = [
   },
   {
     q: 'Which companies are covered?',
-    a: 'Finora works with any public company that files with the SEC — currently US-listed issuers, with international coverage on the roadmap.',
+    a: 'Finora currently supports thousands of US-listed companies that file with the SEC, including all major US exchanges (NYSE, NASDAQ). International coverage is on the roadmap.',
   },
   {
     q: 'Can I export the dashboard?',

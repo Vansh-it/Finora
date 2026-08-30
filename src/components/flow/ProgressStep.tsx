@@ -37,13 +37,13 @@ export default function ProgressStep({
 
       <div className="relative flex h-8 w-8 shrink-0 items-center justify-center">
         {state === 'done' ? (
-          <span className="animate-pop flex h-8 w-8 items-center justify-center rounded-full bg-up/15 text-up">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-up/15 text-up transition-all duration-300">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
         ) : state === 'active' ? (
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-accent ring-4 ring-accent/10">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-accent ring-4 ring-accent/10 transition-all duration-300">
             <svg className="animate-spin" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="6" stroke="var(--ds-accent)" strokeWidth="2" opacity="0.25" />
               <path d="M14 8a6 6 0 0 0-6-6" stroke="var(--ds-accent)" strokeWidth="2" strokeLinecap="round" />

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import KpiCard from './KpiCard';
 import { BarChart, LineChart } from './charts';
+import DashboardChat from './DashboardChat';
 import { fetchDashboardData, adaptKpi, adaptChart, adaptSource } from '../../lib/dashboardAdapter';
 import type { DashboardData, ExecutiveSummary, KpiData, SeriesPoint, ValuationMetric } from '../../lib/dashboardAdapter';
 
@@ -268,11 +269,18 @@ function ManagementCommentary({ commentary }: { commentary: DashboardData['manag
 function DataQualityBar({ quality }: { quality: DashboardData['data_quality'] }) {
   if (!quality) return null;
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-lg bg-canvas p-4 shadow-l1 text-caption text-mute">
-      <span>Primary: <strong className="text-body">{quality.primary_source}</strong></span>
-      <span>{quality.metrics_calculated} metrics</span>
-      {quality.cross_verified > 0 && <span className="text-up">{quality.cross_verified} cross-verified</span>}
-      {quality.mismatches > 0 && <span className="text-down">{quality.mismatches} mismatches</span>}
+    <div className="flex flex-wrap items-center gap-3 sm:gap-4 rounded-lg bg-canvas p-4 shadow-l1 text-caption text-mute">
+      <span className="font-mono text-caption-mono uppercase tracking-wide">Primary: </span>
+      <span><strong className="text-body">{quality.primary_source}</strong></span>
+      <span>·</span>
+      <span><strong className="text-body">{quality.metrics_calculated}</strong> calculated metrics</span>
+      {quality.cross_verified > 0 && (
+        <><span>·</span><span className="text-up">{quality.cross_verified} cross-verified</span></>
+      )}
+      {quality.mismatches > 0 && (
+        <><span>·</span><span className="text-down">{quality.mismatches} material mismatches</span></>
+      )}
+      <span>·</span>
       <span>{quality.sources_count} sources</span>
     </div>
   );
@@ -489,6 +497,11 @@ export default function Dashboard() {
   const [realData, setRealData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const toggleChat = useCallback(() => {
+    setChatOpen((prev) => !prev);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -582,7 +595,7 @@ export default function Dashboard() {
       {d.data_quality && <DataQualityBar quality={d.data_quality} />}
 
       {/* KPI row */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-6 grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
         {kpis.map((k: KpiData) => (
           <KpiCard key={k.id} kpi={k} />
         ))}
@@ -727,6 +740,28 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Ask Finora button — fixed bottom-right */}
+      <button
+        type="button"
+        onClick={toggleChat}
+        className="btn-press fixed bottom-6 right-6 z-[60] flex h-12 items-center gap-2 rounded-full bg-ink px-5 text-button-md text-canvas shadow-l4 hover:opacity-90 md:bottom-8 md:right-8"
+        aria-label="Ask Finora about this company"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        Ask Finora
+      </button>
+
+      {/* Dashboard Chat panel */}
+      <DashboardChat
+        sessionId={new URLSearchParams(window.location.search).get('session_id') || ''}
+        companyName={company.name}
+        ticker={company.ticker}
+        isOpen={chatOpen}
+        onClose={toggleChat}
+      />
     </div>
   );
 }

@@ -186,10 +186,12 @@ def _select_best_fact_for_year(
     if not candidates:
         return None
 
-    # Prefer annual, then most recent filing
+    # Prefer annual > 10-K/10-Q > most recent filing > most recent end
+    _FORM_PRIORITY = {"10-K": 0, "10-K/A": 0, "10-Q": 1, "10-Q/A": 1}
     def sort_key(c: dict) -> tuple:
         is_ann = 1 if c["is_annual"] else 0
-        return (-is_ann, c.get("filed", ""), c.get("end", ""))
+        form_rank = _FORM_PRIORITY.get(c.get("form", ""), 2)
+        return (-is_ann, form_rank, c.get("filed", ""), c.get("end", ""))
 
     candidates.sort(key=sort_key)
     return candidates[0]
@@ -304,10 +306,13 @@ def _extract_metric_latest(
     if not all_candidates:
         return None
 
-    # Prefer annual, then most recent filing
+    # Prefer annual > 10-K/10-Q > most recent filing > most recent end
+    # Uses reverse=True with negated form_rank so that 10-K (rank 0 → -0) > 10-Q (rank 1 → -1) > 8-K/other (rank 2 → -2).
+    _FORM_PRIORITY = {"10-K": 0, "10-K/A": 0, "10-Q": 1, "10-Q/A": 1}
     def sort_key(c: dict) -> tuple:
         is_ann = 1 if c["is_annual"] else 0
-        return (is_ann, c.get("filed", ""), c.get("end", ""))
+        form_rank = _FORM_PRIORITY.get(c.get("form", ""), 2)
+        return (is_ann, -form_rank, c.get("filed", ""), c.get("end", ""))
 
     all_candidates.sort(key=sort_key, reverse=True)
     best = all_candidates[0]
@@ -338,6 +343,66 @@ def _extract_metric_latest(
     ).to_dict()
 
 
+def _detect_latest_annual_years(
+    company_facts: dict,
+    concepts_map: dict[str, list[str]],
+    n_years: int = 3,
+) -> list[int]:
+    """Detect the N most recent annual fiscal years from CompanyFacts.
+
+    Scans a sample of key concepts to find which fiscal years have
+    annual 10-K data available. Returns sorted list of recent years.
+    """
+    us_gaap = company_facts.get("facts", {}).get("us-gaap", {})
+    year_counts: dict[int, int] = {}
+
+    # Sample a few key concepts to detect available years
+    sample_concepts = [
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "NetIncomeLoss",
+        "Assets",
+        "StockholdersEquity",
+        "CashAndCashEquivalentsAtCarryingValue",
+    ]
+
+    for concept in sample_concepts:
+        concept_data = us_gaap.get(concept)
+        if concept_data is None:
+            continue
+        units = concept_data.get("units", {})
+        for unit_facts in units.values():
+            for uf in unit_facts:
+                end = uf.get("end", "")
+                form = uf.get("form", "")
+                if not end:
+                    continue
+                # Only count 10-K annual facts
+                if form not in ("10-K", "10-K/A"):
+                    continue
+                year = _get_fiscal_year(end)
+                if year is None:
+                    continue
+                # Verify it's actually annual (> 300 days)
+                start = uf.get("start", "")
+                if start:
+                    try:
+                        dt_s = datetime.strptime(start, "%Y-%m-%d")
+                        dt_e = datetime.strptime(end, "%Y-%m-%d")
+                        if (dt_e - dt_s).days < 300:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+                year_counts[year] = year_counts.get(year, 0) + 1
+
+    if not year_counts:
+        return []
+
+    # Sort by year descending, pick top N
+    sorted_years = sorted(year_counts.keys(), reverse=True)
+    return sorted_years[:n_years]
+
+
 def _extract_all_metrics(
     company_facts: dict,
     concepts_map: dict[str, list[str]],
@@ -346,9 +411,13 @@ def _extract_all_metrics(
     """Extract all metrics for a statement type.
 
     For specified mode (target_years given): returns {metric: {period: fact_dict}}
-    For latest mode: returns {metric: fact_dict}
+    For latest mode: returns {metric: {period: fact_dict}} with top 3 annual periods.
     """
     results: dict[str, Any] = {}
+
+    # In latest mode, detect the most recent annual years for growth support
+    if target_years is None:
+        target_years = _detect_latest_annual_years(company_facts, concepts_map, n_years=3)
 
     for metric, aliases in concepts_map.items():
         if target_years:
@@ -356,6 +425,7 @@ def _extract_all_metrics(
                 company_facts, aliases, metric, target_years
             )
         else:
+            # Fallback: extract only latest
             results[metric] = _extract_metric_latest(
                 company_facts, aliases, metric
             )
@@ -416,12 +486,12 @@ def extract_financials(
             if isinstance(data, dict):
                 # Check if it's a single fact dict or a period-keyed dict
                 if "period" in data:
-                    # Single fact (latest mode)
+                    # Single fact (legacy latest mode)
                     periods.add(data["period"])
                 else:
-                    # Period-keyed dict (specified mode)
+                    # Period-keyed dict (multi-period or specified mode)
                     for period_key, fact in data.items():
-                        if fact is not None and "period" in fact:
+                        if fact is not None and isinstance(fact, dict) and "period" in fact:
                             periods.add(fact["period"])
 
     # Count metrics extracted
@@ -448,13 +518,22 @@ def extract_financials(
         "metrics_extracted": extracted_count,
     }
 
+    # Only include annual periods (FY YYYY) — exclude quarterly (Q1-FY, Q2-FY, etc.)
+    # Quarterly facts leak in when a concept only has quarterly data for a year.
+    # We only want annual periods for consistent metric calculation.
+    annual_periods = sorted(
+        [p for p in periods if p.startswith("FY") and "Q" not in p],
+        key=lambda p: int(p.replace("FY", ""))
+    )
+    sorted_periods = annual_periods
+
     return FinancialStatements(
         company={
             "name": company_name,
             "ticker": ticker,
             "cik": cik,
         },
-        periods=sorted(periods),
+        periods=sorted_periods,
         income_statement=income,
         balance_sheet=balance,
         cash_flow=cash,

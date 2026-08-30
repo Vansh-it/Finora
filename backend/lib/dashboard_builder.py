@@ -440,7 +440,12 @@ def build_dashboard_payload(session_data: dict) -> dict:
 
     data_quality = {
         "primary_source": "SEC XBRL",
-        "metrics_calculated": len([v for v in annual.values() if v is not None and isinstance(v, dict) and "value" in v]),
+        "metrics_calculated": (
+            len([mid for mid, m in annual.get(latest, {}).items()
+                 if isinstance(m, dict) and m.get("status") == "calculated"]) +
+            len([mid for gm in growth_metrics.values() for mid, m in gm.items()
+                 if isinstance(m, dict) and m.get("status") == "calculated"])
+        ),
         "cross_verified": ver_summary.get("exact_matches", 0) + ver_summary.get("within_tolerance", 0),
         "mismatches": ver_summary.get("mismatches", 0),
         "sources_count": len(sources),

@@ -22,16 +22,16 @@ interface PipelineStep {
 }
 
 const CORE_STEPS: PipelineStep[] = [
-  { id: 'resolve', label: 'Resolving company', detail: 'Looking up company in SEC database', apiEndpoint: '/api/research/fetch-filings', timeoutMs: 30_000, optional: false },
-  { id: 'extract', label: 'Extracting financial statements', detail: 'Reading XBRL data from SEC filings', apiEndpoint: '/api/research/extract-financials', timeoutMs: 60_000, optional: false },
-  { id: 'calculate', label: 'Calculating financial metrics', detail: 'Computing growth, margins, returns', apiEndpoint: '/api/research/calculate-metrics', timeoutMs: 15_000, optional: false },
-  { id: 'valuation', label: 'Calculating valuation metrics', detail: 'Computing P/E, EV/EBITDA, multiples', apiEndpoint: '/api/research/calculate-valuation', timeoutMs: 30_000, optional: false },
+  { id: 'resolve', label: 'Resolving SEC entity', detail: 'Looking up company in SEC database', apiEndpoint: '/api/research/fetch-filings', timeoutMs: 30_000, optional: false },
+  { id: 'extract', label: 'Reading latest 10-K filings', detail: 'Normalizing XBRL financial statements', apiEndpoint: '/api/research/extract-financials', timeoutMs: 60_000, optional: false },
+  { id: 'calculate', label: 'Calculating profitability metrics', detail: 'Computing margins, returns, growth, and cash flow', apiEndpoint: '/api/research/calculate-metrics', timeoutMs: 15_000, optional: false },
+  { id: 'valuation', label: 'Fetching current market price', detail: 'Computing P/E, EV/EBITDA, and valuation multiples', apiEndpoint: '/api/research/calculate-valuation', timeoutMs: 30_000, optional: false },
 ];
 
 const ENRICHMENT_STEPS: PipelineStep[] = [
-  { id: 'discover', label: 'Finding authoritative sources', detail: 'Discovering investor relations and reports', apiEndpoint: '/api/research/discover-sources', timeoutMs: 20_000, optional: true },
-  { id: 'verify', label: 'Reading and cross-checking sources', detail: 'Reading reports via Jina and verifying against SEC', apiEndpoint: '/api/research/read-verify-sources', timeoutMs: 30_000, optional: true },
-  { id: 'summary', label: 'Generating executive analysis', detail: 'AI interpreting financial research', apiEndpoint: '/api/research/generate-summary', timeoutMs: 30_000, optional: true },
+  { id: 'discover', label: 'Cross-checking official sources', detail: 'Discovering investor relations and earnings reports', apiEndpoint: '/api/research/discover-sources', timeoutMs: 20_000, optional: true },
+  { id: 'verify', label: 'Reading and verifying source data', detail: 'Reading reports via Jina and cross-referencing against SEC', apiEndpoint: '/api/research/read-verify-sources', timeoutMs: 30_000, optional: true },
+  { id: 'summary', label: 'Generating executive analysis', detail: 'AI interpreting financial research findings', apiEndpoint: '/api/research/generate-summary', timeoutMs: 30_000, optional: true },
 ];
 
 const PIPELINE_STEPS = [...CORE_STEPS, ...ENRICHMENT_STEPS];

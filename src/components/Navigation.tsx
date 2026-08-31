@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Search, User, Menu, X } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Search, User, Menu, X, LogOut } from "lucide-react";
 import { cn } from "../utils/cn";
+import { getUser, isAuthenticated, removeToken } from "../lib/auth";
 
 const LINKS = [
   { label: "Research", to: "/research" },
@@ -12,7 +13,15 @@ const LINKS = [
 
 export default function Navigation() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const user = getUser();
+  const loggedIn = isAuthenticated();
+
+  function handleLogout() {
+    removeToken();
+    navigate("/");
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-ink/15 bg-paper/95 backdrop-blur">
@@ -41,13 +50,28 @@ export default function Navigation() {
           <button aria-label="Search" className="text-ink-2 transition-colors hover:text-ink">
             <Search size={18} />
           </button>
-          <Link
-            to="/auth"
-            aria-label="Account"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50 text-ink-2 transition-colors hover:border-ink hover:text-ink"
-          >
-            <User size={15} />
-          </Link>
+          {loggedIn ? (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-semibold text-ink-2">
+                {user?.name || user?.email}
+              </span>
+              <button
+                onClick={handleLogout}
+                aria-label="Sign out"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50 text-ink-2 transition-colors hover:border-ink hover:text-ink"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          ) : (
+            <Link
+              to="/auth"
+              aria-label="Account"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50 text-ink-2 transition-colors hover:border-ink hover:text-ink"
+            >
+              <User size={15} />
+            </Link>
+          )}
         </div>
 
         <button className="text-ink lg:hidden" onClick={() => setOpen(!open)} aria-label="Toggle menu">
@@ -68,9 +92,23 @@ export default function Navigation() {
                 {link.label}
               </Link>
             ))}
-            <Link to="/auth" onClick={() => setOpen(false)} className="font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2">
-              Account
-            </Link>
+            {loggedIn ? (
+              <>
+                <span className="font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2">
+                  {user?.name || user?.email}
+                </span>
+                <button
+                  onClick={() => { handleLogout(); setOpen(false); }}
+                  className="text-left font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <Link to="/auth" onClick={() => setOpen(false)} className="font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2">
+                Account
+              </Link>
+            )}
           </nav>
         </div>
       )}

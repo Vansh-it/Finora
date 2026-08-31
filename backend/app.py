@@ -234,28 +234,30 @@ def api_create_research_plan():
 # ── Grant permission endpoint ──────────────────────────────────────────────────
 @app.post("/api/grant-permission")
 def api_grant_permission():
-    """Grant permission and create a research session. Requires auth + quota."""
-    # Auth required
-    user, err = _get_auth_user()
-    if err:
-        return err
+    """Grant permission and create a research session. Auth optional — anonymous research allowed."""
+    # Auth optional — extract user if token present, otherwise allow anonymous
+    user = None
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if token:
+        user = get_user_from_token(token)
 
-    # Check research quota
-    quota = can_use_research(user.user_id)
-    if not quota["allowed"]:
-        return jsonify({
-            "error": f"You've used all {quota['limit']} research runs available in this Finora preview.",
-            "quota_exhausted": True,
-            "remaining": 0,
-            "limit": quota["limit"],
-        }), 429
+    # Check research quota only if authenticated
+    if user:
+        quota = can_use_research(user.user_id)
+        if not quota["allowed"]:
+            return jsonify({
+                "error": f"You've used all {quota['limit']} research runs available in this Finora preview.",
+                "quota_exhausted": True,
+                "remaining": 0,
+                "limit": quota["limit"],
+            }), 429
 
     body = request.get_json(silent=True) or {}
     if not body:
         return jsonify({"error": "Missing JSON body"}), 400
 
     try:
-        session = grant_permission(body, user_id=user.user_id)
+        session = grant_permission(body, user_id=user.user_id if user else None)
         return jsonify({
             "session_id": session.session_id,
             "company": session.company,

@@ -1,12 +1,46 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import Annotation from "../components/Annotation";
 import DocumentCard from "../components/DocumentCard";
 import HighlightText from "../components/HighlightText";
 import PaperTexture from "../components/PaperTexture";
+import { signIn, signUp } from "../lib/api";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      let result;
+      if (mode === "signup") {
+        result = await signUp(email, password, name);
+      } else {
+        result = await signIn(email, password);
+      }
+
+      // Store token in localStorage
+      localStorage.setItem("finora_token", result.token);
+      localStorage.setItem("finora_user", JSON.stringify(result.user));
+
+      // Redirect to research page
+      navigate("/research");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="grid min-h-[85vh] grid-cols-1 lg:grid-cols-2">
@@ -49,13 +83,13 @@ export default function AuthPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 flex gap-6 border-b border-ink/15">
             <button
-              onClick={() => setMode("signin")}
+              onClick={() => { setMode("signin"); setError(null); }}
               className={`pb-3 font-mono text-xs font-bold tracking-widest uppercase ${mode === "signin" ? "border-b-2 border-highlight text-ink" : "text-ink-3"}`}
             >
               Sign In
             </button>
             <button
-              onClick={() => setMode("signup")}
+              onClick={() => { setMode("signup"); setError(null); }}
               className={`pb-3 font-mono text-xs font-bold tracking-widest uppercase ${mode === "signup" ? "border-b-2 border-highlight text-ink" : "text-ink-3"}`}
             >
               Sign Up
@@ -69,18 +103,63 @@ export default function AuthPage() {
             {mode === "signin" ? "Continue your research where you left off." : "Start building traceable research files."}
           </p>
 
-          <form className="mt-8 space-y-5" onSubmit={(e) => e.preventDefault()}>
+          {error && (
+            <div className="mt-4 border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {mode === "signup" && (
-              <Field label="Full Name" type="text" placeholder="Jane Analyst" />
+              <label className="block">
+                <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">Full Name</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jane Analyst"
+                  required
+                  className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
+                />
+              </label>
             )}
-            <Field label="Email" type="email" placeholder="jane@firm.com" />
-            <Field label="Password" type="password" placeholder="••••••••" />
+            <label className="block">
+              <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@firm.com"
+                required
+                className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                minLength={8}
+                className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
+              />
+            </label>
 
             <button
               type="submit"
-              className="w-full bg-ink py-3.5 font-mono text-xs font-bold tracking-widest text-paper uppercase transition-colors hover:bg-ink-2"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 bg-ink py-3.5 font-mono text-xs font-bold tracking-widest text-paper uppercase transition-colors hover:bg-ink-2 disabled:opacity-50"
             >
-              {mode === "signin" ? "Sign In" : "Create Account"}
+              {loading ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  {mode === "signin" ? "Signing In..." : "Creating Account..."}
+                </>
+              ) : (
+                mode === "signin" ? "Sign In" : "Create Account"
+              )}
             </button>
           </form>
 
@@ -92,18 +171,5 @@ export default function AuthPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-function Field({ label, type, placeholder }: { label: string; type: string; placeholder: string }) {
-  return (
-    <label className="block">
-      <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">{label}</span>
-      <input
-        type={type}
-        placeholder={placeholder}
-        className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
-      />
-    </label>
   );
 }

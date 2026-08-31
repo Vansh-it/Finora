@@ -4,6 +4,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import EditorialHeading from "../components/EditorialHeading";
 import Annotation from "../components/Annotation";
 import { cn } from "../utils/cn";
+import { getToken } from "../lib/auth";
 import {
   grantPermission,
   fetchFilings,
@@ -56,7 +57,7 @@ export default function ResearchProcessingPage() {
         updateStage(0, "active");
         let session: GrantPermissionResponse;
         try {
-          session = await grantPermission(ticker, "latest");
+          session = await grantPermission(ticker, "latest", undefined, undefined, getToken() || undefined);
         } catch (err) {
           // If backend is down, show error
           updateStage(0, "error");
@@ -194,9 +195,9 @@ export default function ResearchProcessingPage() {
           const error = status === "error";
 
           return (
-            <div key={stage.key} className="relative flex gap-4 pb-8 pl-2 last:pb-0">
+            <div key={stage.key} className="relative flex gap-4 pb-8 last:pb-0">
               {i < STAGES.length - 1 && (
-                <div className="absolute top-7 left-[15px] h-full w-px bg-ink/15">
+                <div className="absolute top-8 left-[15px] h-full w-px bg-ink/15">
                   <div
                     className={cn(
                       "w-px bg-highlight transition-all duration-500",

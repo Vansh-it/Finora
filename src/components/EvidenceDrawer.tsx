@@ -3,9 +3,16 @@ import { getEvidence } from "../data/evidence";
 import Annotation from "./Annotation";
 import HighlightText from "./HighlightText";
 
-export default function EvidenceDrawer({ metric, onClose }: { metric: string | null; onClose: () => void }) {
+/* Accept optional `data` prop so evidence comes from real dashboard payload */
+interface EvidenceDrawerProps {
+  metric: string | null;
+  data?: unknown | null;
+  onClose: () => void;
+}
+
+export default function EvidenceDrawer({ metric, data, onClose }: EvidenceDrawerProps) {
   if (!metric) return null;
-  const evidence = getEvidence(metric);
+  const evidence = getEvidence(metric, data as any);
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-end">

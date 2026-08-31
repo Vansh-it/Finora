@@ -379,7 +379,7 @@ export default function DashboardPage() {
 
       <div className="pt-10 pb-24">{tabContent}</div>
 
-      <EvidenceDrawer metric={evidenceMetric} onClose={() => setEvidenceMetric(null)} />
+      <EvidenceDrawer metric={evidenceMetric} data={data} onClose={() => setEvidenceMetric(null)} />
       <AskFinoraDrawer sessionId={sessionId} />
     </div>
   );

@@ -7,6 +7,7 @@ import Annotation from "../components/Annotation";
 import SourceStamp from "../components/SourceStamp";
 import DocumentCard from "../components/DocumentCard";
 import PaperTexture from "../components/PaperTexture";
+import AnimatedMetric from "../components/AnimatedMetric";
 
 const PIPELINE = [
   { n: "01", title: "Identify", desc: "Resolve the company & ticker to an authoritative filer.", icon: "card" },
@@ -146,7 +147,7 @@ export default function HomePage() {
       </section>
 
       {/* EVERY NUMBER HAS A RECEIPT */}
-      <section className="relative border-b border-ink/15">
+      <section className="relative">
         <PaperTexture />
         <div className="mx-auto max-w-[1440px] px-4 py-20 sm:px-6 lg:px-10">
           <div className="grid grid-cols-1 gap-14 lg:grid-cols-2">
@@ -168,53 +169,12 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <div className="border border-ink/20 bg-paper p-6 sm:p-8">
-              <Annotation label="Metric" value="Free Cash Flow · Apple Inc. · FY2025" />
-              <div className="mt-6 flex flex-col gap-4 font-mono text-sm">
-                <div className="flex items-center justify-between border-b border-dashed border-ink/30 pb-3">
-                  <span className="text-ink-2">Operating Cash Flow</span>
-                  <span className="font-bold text-ink">$125.4B</span>
-                </div>
-                <div className="flex items-center justify-between border-b border-dashed border-ink/30 pb-3">
-                  <span className="text-ink-2">− Capital Expenditure</span>
-                  <span className="font-bold text-ink">$16.6B</span>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <span className="font-semibold text-ink">= Free Cash Flow</span>
-                  <HighlightText className="font-mono text-lg font-bold">$108.8B</HighlightText>
-                </div>
-              </div>
-
-              <div className="mt-8 flex flex-wrap gap-6 border-t border-ink/15 pt-6">
-                <Annotation label="Source" value="SEC 10-K, FY2025" />
-                <Annotation
-                  label="XBRL Concept"
-                  value="NetCashProvidedByUsedInOperatingActivities"
-                  className="max-w-[220px]"
-                />
-              </div>
-            </div>
+            <AnimatedMetric />
           </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="relative bg-ink text-paper">
-        <div className="mx-auto max-w-[1440px] px-4 py-20 text-center sm:px-6 lg:px-10">
-          <p className="font-mono text-xs font-semibold tracking-[0.3em] text-paper/60 uppercase">
-            Don't trust the number.
-          </p>
-          <h2 className="mt-4 font-serif text-4xl font-medium sm:text-5xl lg:text-6xl">Trace the number.</h2>
-          <div className="mt-10 flex justify-center">
-            <Link
-              to="/research"
-              className="inline-flex items-center gap-2 bg-highlight px-8 py-4 font-mono text-xs font-bold tracking-[0.15em] text-ink uppercase transition-transform hover:-translate-y-0.5"
-            >
-              Start Research <ArrowRight size={15} />
-            </Link>
-          </div>
-        </div>
-      </section>
+
     </div>
   );
 }

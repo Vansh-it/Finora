@@ -12,7 +12,7 @@ import ValuationGrid from "../components/ValuationGrid";
 import SourceLedger from "../components/SourceLedger";
 import EvidenceDrawer from "../components/EvidenceDrawer";
 import AskFinoraDrawer from "../components/AskFinoraDrawer";
-import TickerChip from "../components/TickerChip";
+
 import EditorialHeading from "../components/EditorialHeading";
 import HighlightText from "../components/HighlightText";
 import { getResearchResult } from "../lib/api";
@@ -116,7 +116,7 @@ interface DashboardData {
   };
 }
 
-const TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"];
+
 
 export default function DashboardPage() {
   const [params, setParams] = useSearchParams();
@@ -189,14 +189,19 @@ export default function DashboardPage() {
             <FinancialChart data={data.charts.revenue.map((d) => ({ year: d.label, revenue: d.value, netIncome: data.charts.net_income.find((n) => n.label === d.label)?.value || 0 }))} />
 
             {data.executive_summary && (
-              <ExecutiveAnalysis analysis={{
-                paragraphs: [data.executive_summary.executive_overview],
-                highlights: data.executive_summary.highlights.map((h) => h.title),
-                watch: data.executive_summary.watch_items.map((w) => ({
-                  tag: w.tag as "WATCH" | "STRENGTH" | "RISK",
-                  text: w.text,
-                })),
-              }} />
+              <ExecutiveAnalysis
+                analysis={{
+                  paragraphs: [data.executive_summary.executive_overview],
+                  highlights: data.executive_summary.highlights.map((h) => h.title),
+                  watch: data.executive_summary.watch_items.map((w) => ({
+                    tag: (w.tag as "WATCH" | "STRENGTH" | "RISK") || "WATCH",
+                    text: w.text,
+                  })),
+                  the_read: (data.executive_summary as Record<string, unknown>).the_read as string || undefined,
+                  annotations: (data.executive_summary as Record<string, unknown>).annotations as Array<{tag: string; text: string}> || undefined,
+                }}
+                onAskFollowUp={() => setEvidenceMetric("ask_finora")}
+              />
             )}
           </div>
         );
@@ -331,16 +336,10 @@ export default function DashboardPage() {
     );
   }
 
-  // No session — show demo mode
+  // No session — direct to research
   if (!sessionId || !data) {
     return (
       <div className="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-10">
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          <span className="mr-1 font-mono text-[10px] font-bold tracking-[0.2em] text-ink-3 uppercase">Demo Companies:</span>
-          {TICKERS.map((t) => (
-            <TickerChip key={t} ticker={t} active={t === ticker} onClick={() => selectTicker(t)} />
-          ))}
-        </div>
         <div className="border-2 border-ink/20 bg-paper p-8 text-center">
           <p className="text-ink-2">Run a research analysis to see the full dashboard.</p>
           <button

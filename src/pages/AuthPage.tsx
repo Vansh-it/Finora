@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import Annotation from "../components/Annotation";
 import DocumentCard from "../components/DocumentCard";
 import HighlightText from "../components/HighlightText";
 import PaperTexture from "../components/PaperTexture";
 import { signIn, signUp } from "../lib/api";
+import { setToken } from "../lib/auth";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -15,6 +16,8 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as Record<string, string>)?.from || "/research";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,11 +33,11 @@ export default function AuthPage() {
       }
 
       // Store token in localStorage
-      localStorage.setItem("finora_token", result.token);
+      setToken(result.token);
       localStorage.setItem("finora_user", JSON.stringify(result.user));
 
-      // Redirect to research page
-      navigate("/research");
+      // Redirect to the page the user was trying to access, or research
+      navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {

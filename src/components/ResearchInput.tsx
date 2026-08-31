@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TickerChip from "./TickerChip";
+import { isAuthenticated } from "../lib/auth";
 
 const QUICK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"];
 
@@ -12,6 +13,10 @@ export default function ResearchInput() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const ticker = value.trim().toUpperCase() || "AAPL";
+    if (!isAuthenticated()) {
+      navigate("/auth", { state: { from: "/research" } });
+      return;
+    }
     navigate(`/research?ticker=${ticker}`);
   }
 
@@ -40,7 +45,13 @@ export default function ResearchInput() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="mr-1 font-mono text-[10px] font-bold tracking-[0.2em] text-ink-3 uppercase">Try:</span>
         {QUICK_TICKERS.map((t) => (
-          <TickerChip key={t} ticker={t} onClick={() => navigate(`/research?ticker=${t}`)} />
+          <TickerChip key={t} ticker={t} onClick={() => {
+            if (!isAuthenticated()) {
+              navigate("/auth", { state: { from: "/research" } });
+              return;
+            }
+            navigate(`/research?ticker=${t}`);
+          }} />
         ))}
       </div>
     </div>

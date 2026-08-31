@@ -115,3 +115,31 @@ input:focus-visible,
   outline: 2px solid var(--color-annotate-blue);
   outline-offset: 2px;
 }
+
+/* Sketch underline draw animation */
+@keyframes sketch-draw {
+  0% { width: 0; }
+  100% { width: 100%; }
+}
+.sketch-line {
+  animation: sketch-draw 1.2s ease-out forwards;
+}
+
+/* Yellow highlighter strip — wipes in from left */
+@keyframes hl-strip-in {
+  0%   { transform: scaleX(0) rotate(-0.5deg); }
+  100% { transform: scaleX(1) rotate(-0.5deg); }
+}
+.hl-strip {
+  transform-origin: left center;
+  animation: hl-strip-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.4s both;
+}
+
+/* Text reveal left-to-right */
+@keyframes hl-reveal {
+  0%   { clip-path: inset(0 100% 0 0); }
+  100% { clip-path: inset(0 0% 0 0); }
+}
+.hl-reveal {
+  animation: hl-reveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.5s both;
+}

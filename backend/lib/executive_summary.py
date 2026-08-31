@@ -131,16 +131,19 @@ def _build_analysis_context(session_data: dict) -> dict:
 
 
 # ── LLM prompt ────────────────────────────────────────────────────────────────
-ANALYSIS_PROMPT = """You are a senior financial analyst writing a professional research briefing.
+ANALYSIS_PROMPT = """You are a senior financial analyst writing a concise editorial research briefing.
 
-Based ONLY on the following data, write a concise executive financial analysis.
+Based ONLY on the following data, write a tight executive analysis.
 
 DATA:
 {context}
 
 Write a JSON object with exactly these fields:
 {{
-  "executive_overview": "100-180 word overview of the company's financial position",
+  "the_read": "ONE concise editorial briefing of 60-100 words. Identify the most financially important story. No generic filler. No 'Company X is a leading...' unless genuinely useful. Example style: 'Operating profile improved materially as revenue accelerated while margins expanded. Free cash flow remains the strongest quality signal, with cash generation growing faster than reported earnings. Balance sheet remains unusually liquid, limiting financial-risk concerns, although current valuation embeds substantial expectations.'",
+  "annotations": [
+    {{"tag": "STRENGTH|WATCH|RISK", "text": "One short sentence grounded in actual data. Only include if defensible. 1-3 total annotations."}}
+  ],
   "highlights": [
     {{"title": "string", "text": "1-2 sentence highlight", "importance": "high|medium|low"}}
   ],
@@ -148,11 +151,7 @@ Write a JSON object with exactly these fields:
   "profitability_analysis": "2-4 sentences on margins, returns, DuPont",
   "cash_flow_analysis": "2-4 sentences on cash generation and capital allocation",
   "balance_sheet_analysis": "2-3 sentences on leverage and liquidity",
-  "watch_items": [
-    {{"title": "string", "reason": "1 sentence explanation", "severity": "low|medium|high"}}
-  ],
-  "management_commentary_summary": "2-3 sentences summarizing management commentary if available, otherwise empty string",
-  "data_quality_note": "1 sentence on data sources and verification"
+  "management_commentary_summary": "2-3 sentences summarizing management commentary if available, otherwise empty string"
 }}
 
 RULES:
@@ -161,8 +160,8 @@ RULES:
 3. If a metric is not in the data, do not discuss it.
 4. Be professional, analytical, neutral. No hype.
 5. Do NOT output investment recommendations (buy/sell/hold).
-6. If management commentary exists, clearly attribute it.
-7. Watch items should be data-driven concerns, not predictions.
+6. The_read must be 60-100 words maximum. Be ruthlessly concise.
+7. Annotations: max 3. Do not force a risk if no defensible risk exists.
 8. Return ONLY valid JSON. No markdown, no commentary outside JSON."""
 
 
@@ -216,6 +215,31 @@ def _validate_summary(summary: dict, context: dict) -> dict:
         "profitability_analysis", "cash_flow_analysis", "balance_sheet_analysis",
         "watch_items", "management_commentary_summary", "data_quality_note",
     ]
+
+    # Handle new 'the_read' and 'annotations' fields from updated prompt
+    if "the_read" not in summary:
+        # Fallback: use executive_overview if the_read not generated
+        eo = summary.get("executive_overview", "")
+        summary["the_read"] = str(eo)[:500] if eo else ""
+    if "annotations" not in summary:
+        summary["annotations"] = []
+    if not isinstance(summary["annotations"], list):
+        summary["annotations"] = []
+    summary["annotations"] = [
+        a for a in summary["annotations"]
+        if isinstance(a, dict) and "tag" in a and "text" in a
+    ][:3]
+    # Map old watch_items to annotations if annotations is empty
+    if not summary["annotations"] and summary.get("watch_items"):
+        tag_map = {"WATCH": "WATCH", "STRENGTH": "STRENGTH", "RISK": "RISK"}
+        for w in summary["watch_items"][:3]:
+            severity = w.get("severity", "low")
+            tag = tag_map.get(str(w.get("tag", "WATCH")).upper(), "WATCH")
+            if severity == "high":
+                tag = "RISK"
+            elif severity == "low":
+                tag = "STRENGTH"
+            summary["annotations"].append({"tag": tag, "text": w.get("reason", w.get("text", ""))})
 
     # Ensure all required fields exist
     for field in required_fields:

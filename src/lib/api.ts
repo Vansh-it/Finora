@@ -1,26 +1,82 @@
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+const MAX_RETRIES = 2;
+const INITIAL_RETRY_DELAY = 1000;
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function apiFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retries = MAX_RETRIES
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  let lastError: Error | null = null;
 
-  const data = await res.json();
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      // Set a generous timeout: 120s for research endpoints, 60s for chat, 30s default
+      const isLongRunning = path.includes("/research/run") || path.includes("/chat");
+      const timeoutMs = path.includes("/research/") ? 120000 : isLongRunning ? 60000 : 30000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    const errorMsg = data?.error || `Request failed (${res.status})`;
-    throw new Error(errorMsg);
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+      });
+
+      clearTimeout(timeoutId);
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        throw new Error(
+          text.includes("<!doctype")
+            ? `Server returned HTML instead of JSON. Make sure the backend is running on port 8000.`
+            : `API error (${res.status}): ${text.slice(0, 200)}`
+        );
+      }
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data?.error || `Request failed (${res.status})`;
+        throw new Error(errorMsg);
+      }
+
+      return data as T;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+
+      // Don't retry on 4xx client errors (except 429 rate limit)
+      if (lastError.message.includes("(4") && !lastError.message.includes("(429")) {
+        throw lastError;
+      }
+
+      // Don't retry if this was the last attempt
+      if (attempt >= retries) break;
+
+      // Retry with exponential backoff
+      const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+      await sleep(delay);
+    }
   }
 
-  return data as T;
+  // All retries failed — provide a clear, actionable error message
+  const msg = lastError?.message || "Unknown error";
+  if (msg.includes("Failed to fetch") || msg.includes("abort") || msg.includes("NetworkError")) {
+    throw new Error(
+      "Could not reach the Finora backend. Make sure the server is running (npm run dev:all) and try again."
+    );
+  }
+  throw lastError || new Error("Request failed after multiple attempts.");
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -443,6 +499,73 @@ export async function runResearch(
     method: "POST",
     body: JSON.stringify({ company, period_mode: periodMode }),
     headers,
+  });
+}
+
+// ── Research History ──────────────────────────────────────────────────────
+
+export interface HistoryEntry {
+  session_id: string;
+  company: string;
+  ticker: string;
+  period: string;
+  created_at: string;
+  headline: string;
+  metric_count: number;
+  source_count: number;
+  status: string;
+}
+
+export interface HistoryResponse {
+  researches: HistoryEntry[];
+  usage: {
+    used: number;
+    limit: number;
+    remaining: number;
+  };
+}
+
+export async function getResearchHistory(
+  token: string
+): Promise<HistoryResponse> {
+  return apiFetch("/api/research/history", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+// ── Profile ────────────────────────────────────────────────────────────────
+
+export interface ProfileData {
+  user: {
+    user_id: string;
+    email: string;
+    name: string;
+    company?: string;
+    research_runs_used: number;
+    research_runs_limit: number;
+  };
+  completed_researches: number;
+  usage: {
+    used: number;
+    limit: number;
+    remaining: number;
+  };
+}
+
+export async function getFullProfile(token: string): Promise<ProfileData> {
+  return apiFetch("/api/auth/profile", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function updateProfile(
+  token: string,
+  data: { name?: string; company?: string }
+): Promise<{ user: ProfileData["user"] }> {
+  return apiFetch("/api/auth/update-profile", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
   });
 }
 

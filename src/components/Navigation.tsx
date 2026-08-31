@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, User, Menu, X, LogOut } from "lucide-react";
+import { Search, User, Menu, X } from "lucide-react";
 import { cn } from "../utils/cn";
 import { getUser, isAuthenticated, removeToken } from "../lib/auth";
 
 const LINKS = [
   { label: "Research", to: "/research" },
   { label: "Dashboard", to: "/dashboard" },
-  { label: "Chat", to: "/chat" },
+  { label: "History", to: "/history" },
   { label: "Methodology", to: "/methodology" },
 ];
 
@@ -23,6 +23,15 @@ export default function Navigation() {
     navigate("/");
   }
 
+  function handleNavClick(link: typeof LINKS[0]) {
+    // Auth-protected links: redirect to /auth if not logged in
+    const protectedLinks = ["/research", "/dashboard", "/history", "/profile"];
+    if (protectedLinks.includes(link.to) && !loggedIn) {
+      navigate("/auth", { state: { from: link.to } });
+      return;
+    }
+  }
+
   return (
     <header className="sticky top-0 z-50 border-b border-ink/15 bg-paper/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between px-4 sm:px-6 lg:px-10">
@@ -36,6 +45,7 @@ export default function Navigation() {
             <Link
               key={link.to}
               to={link.to}
+              onClick={() => handleNavClick(link)}
               className={cn(
                 "font-mono text-xs font-semibold tracking-[0.15em] uppercase text-ink-2 transition-colors hover:text-ink",
                 location.pathname.startsWith(link.to) && "text-ink border-b-2 border-highlight pb-1"
@@ -51,18 +61,13 @@ export default function Navigation() {
             <Search size={18} />
           </button>
           {loggedIn ? (
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-semibold text-ink-2">
-                {user?.name || user?.email}
-              </span>
-              <button
-                onClick={handleLogout}
-                aria-label="Sign out"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50 text-ink-2 transition-colors hover:border-ink hover:text-ink"
-              >
-                <LogOut size={15} />
-              </button>
-            </div>
+            <button
+              onClick={() => navigate("/profile")}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50 text-ink-2 transition-colors hover:border-ink hover:text-ink"
+              aria-label="Profile"
+            >
+              <User size={15} />
+            </button>
           ) : (
             <Link
               to="/auth"
@@ -86,7 +91,10 @@ export default function Navigation() {
               <Link
                 key={link.to}
                 to={link.to}
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  handleNavClick(link);
+                  setOpen(false);
+                }}
                 className="font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2"
               >
                 {link.label}
@@ -94,9 +102,13 @@ export default function Navigation() {
             ))}
             {loggedIn ? (
               <>
-                <span className="font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2">
-                  {user?.name || user?.email}
-                </span>
+                <Link
+                  to="/profile"
+                  onClick={() => setOpen(false)}
+                  className="font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2"
+                >
+                  Profile
+                </Link>
                 <button
                   onClick={() => { handleLogout(); setOpen(false); }}
                   className="text-left font-mono text-sm font-semibold tracking-[0.1em] uppercase text-ink-2"

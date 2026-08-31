@@ -23,6 +23,12 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8000",
         changeOrigin: true,
+        timeout: 120000, // 2 min — LLM chat/research calls can be slow
+        configure: (proxy) => {
+          proxy.on("error", (err) => {
+            console.error("[proxy error]", err.message);
+          });
+        },
       },
       // Proxy /test page to Flask backend
       "/test": {

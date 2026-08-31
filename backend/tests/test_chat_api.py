@@ -27,9 +27,9 @@ def client():
 
 
 def _mock_generate(return_value: str = "Hello! I'm Finora."):
-    """Patch manager.generate_text to return a fixed string."""
+    """Patch manager.generate_chat to return a fixed string."""
     mock_manager = MagicMock()
-    mock_manager.generate_text.return_value = return_value
+    mock_manager.generate_chat.return_value = return_value
     mock_manager.get_status.return_value = {
         "active_provider": "openai_oss",
         "providers": [{"name": "openai_oss", "available": True}],
@@ -38,9 +38,9 @@ def _mock_generate(return_value: str = "Hello! I'm Finora."):
 
 
 def _mock_generate_error(error_msg: str = "All providers exhausted"):
-    """Patch manager.generate_text to raise RuntimeError."""
+    """Patch manager.generate_chat to raise RuntimeError."""
     mock_manager = MagicMock()
-    mock_manager.generate_text.side_effect = RuntimeError(error_msg)
+    mock_manager.generate_chat.side_effect = RuntimeError(error_msg)
     mock_manager.get_status.return_value = {
         "active_provider": "none",
         "providers": [{"name": "openai_oss", "available": False}],
@@ -166,8 +166,8 @@ class TestProviderBehavior:
     def test_09_primary_provider_failure_fallback_succeeds(self, client):
         """When primary fails, failover succeeds."""
         mock_manager = MagicMock()
-        # First call (generate_text) succeeds via failover
-        mock_manager.generate_text.return_value = "Fallback response."
+        # First call (generate_chat) succeeds via failover
+        mock_manager.generate_chat.return_value = "Fallback response."
         mock_manager.get_status.return_value = {
             "active_provider": "nvidia_nemotron",
             "providers": [

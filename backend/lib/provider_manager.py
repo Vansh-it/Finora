@@ -6,6 +6,7 @@ switches to the next available provider — the user never sees an interruption.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from enum import Enum
 
 from dotenv import load_dotenv
 from pathlib import Path
+
+logger = logging.getLogger("finora.provider")
 
 # ── Load environment variables ────────────────────────────────────────────────
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -129,10 +132,38 @@ class ProviderManager:
         self._current_index = 0
         return 0
 
+    def _get_client(self, provider: Provider) -> tuple:
+        """Create an OpenAI client for the given provider."""
+        from openai import OpenAI
+
+        base_url = "https://integrate.api.nvidia.com/v1"
+        if provider.name == "kimi_k3":
+            api_key = os.getenv("NVIDIA_API_KEY_KIMI", "")
+        else:
+            api_key = os.getenv("NVIDIA_API_KEY", "")
+
+        if not api_key:
+            raise RuntimeError(f"{provider.name}: API key not configured")
+
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
+        return client, api_key
+
     def generate_text(self, prompt: str) -> str:
-        """Send prompt to LLM with automatic failover between providers."""
+        """Send a single-prompt text completion (used by intent classifier)."""
         if not prompt or not prompt.strip():
             raise ValueError("prompt must be a non-empty string")
+        messages = [{"role": "user", "content": prompt}]
+        return self._generate_with_failover(messages)
+
+    def generate_chat(self, messages: list[dict[str, str]]) -> str:
+        """Send a chat conversation with proper system/user/assistant roles."""
+        if not messages:
+            raise ValueError("messages must be a non-empty list")
+        return self._generate_with_failover(messages)
+
+    def _generate_with_failover(self, messages: list[dict[str, str]]) -> str:
+        """Core generation with automatic failover between providers."""
+        last_error = ""
 
         # Try providers with failover
         for _ in range(len(self._providers)):
@@ -143,68 +174,67 @@ class ProviderManager:
             self._current_index = (idx + 1) % len(self._providers)
 
             if not provider.is_available():
+                logger.debug(f"Skipping {provider.name} — status={provider.status.value}")
                 continue
 
             try:
-                from openai import OpenAI
+                client, _ = self._get_client(provider)
+                provider.total_requests += 1
 
-                # Choose base URL and model based on provider
-                if provider.name == "kimi_k3":
-                    base_url = "https://integrate.api.nvidia.com/v1"
-                    api_key = os.getenv("NVIDIA_API_KEY_KIMI", "")
-                else:
-                    base_url = "https://integrate.api.nvidia.com/v1"
-                    api_key = os.getenv("NVIDIA_API_KEY", "")
-
-                if not api_key:
-                    provider.mark_auth_failed()
-                    continue
-
-                self._provider = provider  # Set as current for status tracking
-                client = OpenAI(
-                    api_key=api_key,
-                    base_url=base_url,
-                    timeout=30.0,
-                )
+                logger.info(f"Calling {provider.name} ({provider.model}) with {len(messages)} messages")
+                t0 = time.time()
 
                 completion = client.chat.completions.create(
                     model=provider.model,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     temperature=1.0,
                     top_p=0.95,
                     max_tokens=1024,
                 )
+
+                elapsed = time.time() - t0
                 msg = completion.choices[0].message
-                reasoning = getattr(msg, "reasoning_content", None)
-                content = msg.content or ""
+                content = (msg.content or "").strip()
+
                 if content:
                     provider.mark_healthy()
+                    logger.info(f"{provider.name} responded in {elapsed:.1f}s ({len(content)} chars)")
                     return content
-                if reasoning:
-                    provider.mark_healthy()
-                    return reasoning
-                raise RuntimeError(f"{provider.model}: empty response from API")
 
-            except RuntimeError as exc:
-                exc_msg = str(exc).lower()
-                # Rate limit/quota -> mark rate limited and try next
-                if any(t in exc_msg for t in ("rate", "quota", "429", "limit")):
-                    provider.mark_rate_limited(120.0)
-                    continue
-                # Auth errors -> mark auth failed and try next
-                elif any(t in exc_msg for t in ("auth", "invalid", "permission", "401", "403")):
-                    provider.mark_auth_failed()
-                    continue
-                # Other errors -> mark error and try next
-                else:
-                    provider.mark_error(5.0)
-                    continue
-            except Exception as exc:
+                # Content empty — check reasoning_content as fallback
+                reasoning = getattr(msg, "reasoning_content", None)
+                if reasoning and reasoning.strip():
+                    provider.mark_healthy()
+                    logger.warning(f"{provider.name}: content empty but reasoning_content available — using as fallback")
+                    return reasoning.strip()
+
+                last_error = f"{provider.model}: empty response from API"
+                logger.error(last_error)
                 provider.mark_error(5.0)
                 continue
 
+            except Exception as exc:
+                elapsed = time.time() - t0 if 't0' in dir() else 0
+                last_error = str(exc)
+                exc_msg = last_error.lower()
+                logger.error(f"{provider.name} failed after {elapsed:.1f}s: {last_error}")
+
+                # Rate limit/quota -> mark rate limited and try next
+                if any(t in exc_msg for t in ("rate", "quota", "429", "limit")):
+                    provider.mark_rate_limited(120.0)
+                # Auth errors -> mark auth failed and try next
+                elif any(t in exc_msg for t in ("auth", "invalid", "permission", "401", "403")):
+                    provider.mark_auth_failed()
+                # Timeout errors -> longer cooldown
+                elif any(t in exc_msg for t in ("timeout", "timed out", "deadline")):
+                    provider.mark_error(30.0)
+                # Other errors -> mark error and try next
+                else:
+                    provider.mark_error(5.0)
+                continue
+
         # All providers exhausted
-        raise RuntimeError("All LLM providers are currently unavailable")
+        raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
     def get_status(self) -> dict:
         """Return provider status for monitoring/debugging."""

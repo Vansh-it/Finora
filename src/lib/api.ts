@@ -422,6 +422,30 @@ export async function getResearchQuota(
   });
 }
 
+// ── Single Pipeline Call ─────────────────────────────────────────────────────
+
+export interface RunResearchResponse {
+  status: string;
+  session_id: string;
+  dashboard?: DashboardPayload;
+  error?: string;
+}
+
+export async function runResearch(
+  company: string,
+  periodMode: string = "latest",
+  token?: string
+): Promise<RunResearchResponse> {
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  return apiFetch("/api/research/run", {
+    method: "POST",
+    body: JSON.stringify({ company, period_mode: periodMode }),
+    headers,
+  });
+}
+
 // ── Health Check ──────────────────────────────────────────────────────────────
 
 export async function healthCheck(): Promise<{

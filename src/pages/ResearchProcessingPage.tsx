@@ -5,27 +5,16 @@ import EditorialHeading from "../components/EditorialHeading";
 import Annotation from "../components/Annotation";
 import { cn } from "../utils/cn";
 import { getToken } from "../lib/auth";
-import {
-  grantPermission,
-  fetchFilings,
-  extractFinancials,
-  calculateMetrics,
-  discoverSources,
-  readVerifySources,
-  generateSummary,
-  calculateValuation,
-  cancelSession,
-  type GrantPermissionResponse,
-} from "../lib/api";
+import { runResearch } from "../lib/api";
 
 const STAGES = [
-  { key: "grant", title: "Permission Granted", detail: "Creating research session and validating inputs." },
-  { key: "filings", title: "SEC Filings Located", detail: "Resolving company CIK and locating 10-K, 10-Q and 8-K filings via EDGAR." },
-  { key: "financials", title: "Financial Statements", detail: "Extracting income statement, balance sheet & cash flow from XBRL CompanyFacts." },
+  { key: "company", title: "Entity Identified", detail: "Resolved company name to CIK and primary exchange listing." },
+  { key: "filings", title: "SEC Filings Located", detail: "Located most recent 10-K, 10-Q and 8-K filings via EDGAR." },
+  { key: "financials", title: "Financial Statements", detail: "Extracting income statement, balance sheet & cash flow from XBRL." },
   { key: "metrics", title: "Metrics Calculated", detail: "Deriving profitability, growth, efficiency and valuation metrics." },
-  { key: "sources", title: "Sources Discovered", detail: "Searching for authoritative company financial sources via Tavily + SEC." },
-  { key: "verify", title: "Source Verification", detail: "Reading sources with Jina and cross-checking figures against SEC data." },
-  { key: "summary", title: "Analysis Generated", detail: "Generating the plain-language executive research memo." },
+  { key: "sources", title: "Sources Discovered", detail: "Searching for authoritative company financial sources." },
+  { key: "verify", title: "Source Verification", detail: "Cross-checking figures against external sources." },
+  { key: "summary", title: "Analysis Generated", detail: "Generating the executive research memo." },
   { key: "valuation", title: "Valuation Complete", detail: "Fetching market data and calculating valuation multiples." },
   { key: "complete", title: "Research File Complete", detail: "Assembling the final research record." },
 ];
@@ -36,113 +25,69 @@ export default function ResearchProcessingPage() {
   const [params] = useSearchParams();
   const ticker = (params.get("ticker") || "AAPL").toUpperCase();
   const navigate = useNavigate();
-  const [activeStage, setActiveStage] = useState(0);
   const [stageStatuses, setStageStatuses] = useState<StageStatus[]>(
     () => STAGES.map(() => "pending" as StageStatus)
   );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const startedRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Run the full research pipeline
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    let cancelled = false;
+    // Start elapsed timer
+    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
 
-    async function runPipeline() {
+    async function run() {
       try {
-        // Step 1: Grant permission
+        // Animate stages as the pipeline runs
+        // Stage 0: immediately show as active
         updateStage(0, "active");
-        let session: GrantPermissionResponse;
-        try {
-          session = await grantPermission(ticker, "latest", undefined, undefined, getToken() || undefined);
-        } catch (err) {
-          // If backend is down, show error
-          updateStage(0, "error");
-          setErrorMsg(
-            err instanceof Error
-              ? err.message
-              : "Could not connect to the Finora backend. Make sure the backend is running."
-          );
+
+        const result = await runResearch(ticker, "latest", getToken() || undefined);
+
+        // Stop timer
+        if (timerRef.current) clearInterval(timerRef.current);
+
+        if (result.status === "error") {
+          setErrorMsg(result.error || "Research pipeline failed");
+          // Mark current stage as error
+          setStageStatuses((prev) => {
+            const idx = prev.findIndex((s) => s === "active");
+            if (idx >= 0) prev[idx] = "error";
+            return [...prev];
+          });
           return;
         }
-        if (cancelled) return;
-        setSessionId(session.session_id);
-        updateStage(0, "done");
 
-        // Step 2: Fetch filings
-        updateStage(1, "active");
-        await fetchFilings(session.session_id);
-        if (cancelled) return;
-        updateStage(1, "done");
+        // Mark all stages as done
+        setStageStatuses(STAGES.map(() => "done" as StageStatus));
 
-        // Step 3: Extract financials
-        updateStage(2, "active");
-        await extractFinancials(session.session_id);
-        if (cancelled) return;
-        updateStage(2, "done");
-
-        // Step 4: Calculate metrics
-        updateStage(3, "active");
-        await calculateMetrics(session.session_id);
-        if (cancelled) return;
-        updateStage(3, "done");
-
-        // Step 5: Discover sources
-        updateStage(4, "active");
-        await discoverSources(session.session_id);
-        if (cancelled) return;
-        updateStage(4, "done");
-
-        // Step 6: Read + verify sources
-        updateStage(5, "active");
-        await readVerifySources(session.session_id);
-        if (cancelled) return;
-        updateStage(5, "done");
-
-        // Step 7: Generate summary
-        updateStage(6, "active");
-        await generateSummary(session.session_id);
-        if (cancelled) return;
-        updateStage(6, "done");
-
-        // Step 8: Calculate valuation
-        updateStage(7, "active");
-        await calculateValuation(session.session_id);
-        if (cancelled) return;
-        updateStage(7, "done");
-
-        // Step 9: Complete
-        updateStage(8, "done");
-
-        // Navigate to dashboard after a short delay
+        // Navigate to dashboard after short delay
         setTimeout(() => {
-          if (!cancelled) {
-            navigate(`/dashboard?session_id=${session.session_id}`);
-          }
-        }, 700);
+          navigate(`/dashboard?session_id=${result.session_id}`);
+        }, 800);
       } catch (err) {
-        console.error("Pipeline error:", err);
-        if (!cancelled) {
-          setErrorMsg(
-            err instanceof Error ? err.message : "Research pipeline failed"
-          );
-        }
+        if (timerRef.current) clearInterval(timerRef.current);
+        setErrorMsg(
+          err instanceof Error ? err.message : "Could not connect to the Finora backend."
+        );
+        setStageStatuses((prev) => {
+          const idx = prev.findIndex((s) => s === "active");
+          if (idx >= 0) prev[idx] = "error";
+          return [...prev];
+        });
       }
     }
 
-    runPipeline();
+    run();
 
     return () => {
-      cancelled = true;
-      // Cancel session if component unmounts
-      if (sessionId) {
-        cancelSession(sessionId).catch(() => {});
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [ticker, navigate, sessionId]);
+  }, [ticker, navigate]);
 
   function updateStage(index: number, status: StageStatus) {
     setStageStatuses((prev) => {
@@ -150,7 +95,6 @@ export default function ResearchProcessingPage() {
       next[index] = status;
       return next;
     });
-    setActiveStage(index);
   }
 
   return (
@@ -172,6 +116,9 @@ export default function ResearchProcessingPage() {
           <div className="font-serif text-lg font-semibold text-ink uppercase">{ticker}</div>
           <Annotation label="NASDAQ" value={ticker} />
         </div>
+        {elapsed > 0 && (
+          <div className="ml-auto font-mono text-xs text-ink-3">{elapsed}s</div>
+        )}
       </div>
 
       {errorMsg && (

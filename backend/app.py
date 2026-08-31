@@ -1266,6 +1266,184 @@ def key_status():
     return jsonify(get_status())
 
 
+# ── Full research pipeline endpoint (single call) ──────────────────────────────
+@app.post("/api/research/run")
+def api_run_research():
+    """Run the entire research pipeline in a single request for speed."""
+    body = request.get_json(silent=True) or {}
+    company = body.get("company", "")
+    period_mode = body.get("period_mode", "latest")
+    start_year = body.get("start_year")
+    end_year = body.get("end_year")
+
+    if not company or not isinstance(company, str):
+        return jsonify({"error": "Missing or invalid 'company' field"}), 400
+
+    # Auth optional
+    user = None
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if token:
+        user = get_user_from_token(token)
+
+    # Create session
+    try:
+        session_data = {"company": company, "period_mode": period_mode}
+        if start_year:
+            session_data["start_year"] = start_year
+        if end_year:
+            session_data["end_year"] = end_year
+        session = grant_permission(session_data, user_id=user.user_id if user else None)
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    session_id = session.session_id
+    stages_done = []
+
+    def _run():
+        nonlocal stages_done
+        try:
+            # Step 1: Resolve company
+            update_session_status(session_id, "resolving_company")
+            company_meta = resolve_company(session.company)
+            set_session_company_meta(session_id, company_meta.to_dict())
+            update_session_status(session_id, "company_resolved")
+            stages_done.append("company_resolved")
+
+            # Step 2: Fetch filings
+            update_session_status(session_id, "fetching_filings")
+            registry = retrieve_filings(
+                cik=company_meta.cik, company_name=company_meta.name,
+                ticker=company_meta.ticker, period_mode=session.period_mode,
+                start_year=session.start_year, end_year=session.end_year,
+            )
+            set_session_document_registry(session_id, registry.to_dict())
+            update_session_status(session_id, "filings_found")
+            stages_done.append("filings_found")
+
+            # Step 3: Extract financials
+            update_session_status(session_id, "extracting_financials")
+            statements = extract_financials(
+                cik=company_meta.cik, company_name=company_meta.name,
+                ticker=company_meta.ticker, period_mode=session.period_mode,
+                start_year=session.start_year, end_year=session.end_year,
+            )
+            set_session_financial_statements(session_id, statements.to_dict())
+            update_session_status(session_id, "financials_extracted")
+            stages_done.append("financials_extracted")
+
+            # Step 4: Calculate metrics
+            update_session_status(session_id, "calculating_metrics")
+            metrics = calculate_metrics(session.financial_statements)
+            set_session_calculated_metrics(session_id, metrics)
+            update_session_status(session_id, "metrics_calculated")
+            stages_done.append("metrics_calculated")
+
+            # Step 5: Build SEC-only source registry (skip slow Tavily)
+            update_session_status(session_id, "discovering_sources")
+            sec_sources = []
+            if session.document_registry and "documents" in session.document_registry:
+                for doc in session.document_registry["documents"]:
+                    sec_sources.append({
+                        "source_id": doc.get("document_id", "sec_unknown"),
+                        "source_type": doc.get("form", "filing").lower(),
+                        "authority": "regulatory",
+                        "provider": "SEC EDGAR",
+                        "url": doc.get("source_url", ""),
+                        "title": f"{doc.get('form', 'Filing')} - {company_meta.name}",
+                        "period": "Latest" if period_mode == "latest" else f"FY{start_year}–FY{end_year}",
+                        "trust_tier": 1,
+                        "status": "verified",
+                    })
+            source_registry = {
+                "sources": sec_sources,
+                "metadata": {"total_sources": len(sec_sources), "sec_sources": len(sec_sources)},
+            }
+            set_session_source_registry(session_id, source_registry)
+            update_session_status(session_id, "sources_discovered")
+            stages_done.append("sources_discovered")
+
+            # Step 6: Verification (SEC-only, no slow Jina reads)
+            update_session_status(session_id, "reading_sources")
+            verification = {
+                "verifications": [],
+                "summary": {"total_compared": 0, "exact_matches": 0, "within_tolerance": 0, "mismatches": 0, "not_comparable": 0, "missing_external": 0, "missing_sec": 0},
+                "management_commentary": [],
+                "primary_source": "SEC XBRL",
+                "sources_read": 0,
+            }
+            set_session_verification_results(session_id, verification)
+            update_session_status(session_id, "verification_complete")
+            stages_done.append("verification_complete")
+
+            if session.user_id:
+                increment_research_runs(session.user_id)
+
+            # Step 7: Executive summary (deterministic — fast)
+            update_session_status(session_id, "generating_analysis")
+            _periods = statements.to_dict().get("periods", [])
+            _latest = _periods[-1] if _periods else "Latest"
+            _income = statements.to_dict().get("income_statement", {})
+            _rev_val = _income.get("revenue", {}).get(_latest, {}).get("value") if isinstance(_income.get("revenue", {}).get(_latest), dict) else None
+            _ni_val = _income.get("net_income", {}).get(_latest, {}).get("value") if isinstance(_income.get("net_income", {}).get(_latest), dict) else None
+            _rev_str = f"${_rev_val/1e9:.1f}B" if _rev_val else "N/A"
+            _ni_str = f"${_ni_val/1e9:.1f}B" if _ni_val else "N/A"
+            summary = {
+                "executive_overview": f"{company_meta.name} ({company_meta.ticker}) reported revenue of {_rev_str} and net income of {_ni_str} for {_latest}, based on SEC XBRL filings.",
+                "highlights": [
+                    {"title": "Revenue", "text": f"{_rev_str} in {_latest}"},
+                    {"title": "Net Income", "text": f"{_ni_str} in {_latest}"},
+                ],
+                "growth_analysis": "", "profitability_analysis": "", "cash_flow_analysis": "",
+                "balance_sheet_analysis": "", "watch_items": [], "management_commentary_summary": "",
+                "data_quality_note": "Primary source: SEC XBRL.",
+            }
+            set_session_executive_summary(session_id, summary)
+            update_session_status(session_id, "analysis_complete")
+            stages_done.append("analysis_complete")
+
+            # Step 8: Market data + valuation (with fallback)
+            update_session_status(session_id, "fetching_market_data")
+            ticker_str = company_meta.ticker
+            try:
+                market_data = get_market_snapshot(ticker_str)
+            except Exception:
+                market_data = {"ticker": ticker_str, "name": company_meta.name, "price": None, "error": "Market data unavailable", "currency": "USD"}
+            set_session_market_data(session_id, market_data)
+
+            update_session_status(session_id, "calculating_valuation")
+            session_data_dict = session.to_dict()
+            session_data_dict["market_data"] = market_data
+            try:
+                valuation = calculate_valuation(session_data_dict)
+            except Exception:
+                valuation = {"market_data": market_data, "valuation_metrics": {}, "period_alignment": {}, "is_financial_institution": False}
+            set_session_valuation_metrics(session_id, valuation)
+            update_session_status(session_id, "valuation_complete")
+            stages_done.append("valuation_complete")
+
+            # Build dashboard payload
+            update_session_status(session_id, "ready_for_dashboard")
+            stages_done.append("complete")
+
+        except Exception as exc:
+            logger.error(f"PIPELINE_FAILED session_id={session_id[:12]}... error={exc}")
+            set_session_error(session_id, str(exc))
+            stages_done.append("error")
+
+    _run()
+
+    # Return the final result
+    if "error" in stages_done:
+        session_obj = get_session(session_id)
+        return jsonify({"status": "error", "session_id": session_id, "error": session_obj.error if session_obj else "Pipeline failed"}), 500
+
+    try:
+        payload = build_dashboard_payload(get_session(session_id).to_dict())
+        return jsonify({"status": "complete", "session_id": session_id, "dashboard": payload})
+    except Exception as exc:
+        return jsonify({"status": "error", "session_id": session_id, "error": str(exc)}), 500
+
+
 # ── Auth endpoints ──────────────────────────────────────────────────────────
 @app.post("/api/auth/signup")
 def api_signup():

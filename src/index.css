@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #f2efe7;
+  --color-paper-2: #e7e1d4;
+  --color-paper-3: #ddd6c4;
+  --color-ink: #111111;
+  --color-ink-2: #353535;
+  --color-ink-3: #6b6558;
+  --color-highlight: #e9ff32;
+  --color-annotate-blue: #3978ff;
+  --color-annotate-red: #e4493d;
+  --color-annotate-green: #1f7a4d;
+
+  --font-serif: "Fraunces", "Iowan Old Style", "Georgia", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --animate-draw-underline: draw-underline 0.6s ease-out forwards;
+  --animate-fade-up: fade-up 0.6s ease-out forwards;
+  --animate-marker: marker-sweep 0.5s ease-out forwards;
+}
+
+@keyframes draw-underline {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes marker-sweep {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+@keyframes count-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Subtle paper grain texture, used sparingly */
+.paper-grain {
+  position: relative;
+}
+.paper-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Highlighter mark */
+.mark-highlight {
+  background: linear-gradient(180deg, transparent 55%, var(--color-highlight) 55%, var(--color-highlight) 92%, transparent 92%);
+  padding: 0 0.15em;
+}
+
+.mark-highlight-solid {
+  background-color: var(--color-highlight);
+  color: var(--color-ink);
+}
+
+::selection {
+  background: var(--color-highlight);
+  color: var(--color-ink);
+}
+
+/* thin scrollbars for horizontal scroll areas */
+.thin-scroll::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-ink-3);
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: var(--color-paper-2);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-annotate-blue);
+  outline-offset: 2px;
+}

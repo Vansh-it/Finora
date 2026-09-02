@@ -18,9 +18,10 @@ async function apiFetch<T>(
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
-      // Set a generous timeout: 120s for research endpoints, 60s for chat, 30s default
-      const isLongRunning = path.includes("/research/run") || path.includes("/chat");
-      const timeoutMs = path.includes("/research/") ? 120000 : isLongRunning ? 60000 : 30000;
+      // Set a generous timeout: 180s for chat, 120s for research endpoints, 30s default
+      const isChat = path.includes("/chat");
+      const isResearch = path.includes("/research/");
+      const timeoutMs = isChat ? 45000 : isResearch ? 120000 : 30000;
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const res = await fetch(url, {
@@ -71,9 +72,14 @@ async function apiFetch<T>(
 
   // All retries failed — provide a clear, actionable error message
   const msg = lastError?.message || "Unknown error";
-  if (msg.includes("Failed to fetch") || msg.includes("abort") || msg.includes("NetworkError")) {
+  if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
     throw new Error(
       "Could not reach the Finora backend. Make sure the server is running (npm run dev:all) and try again."
+    );
+  }
+  if (msg.includes("abort")) {
+    throw new Error(
+      "The request timed out. The AI is still thinking — please try again."
     );
   }
   throw lastError || new Error("Request failed after multiple attempts.");

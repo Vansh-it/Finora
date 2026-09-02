@@ -49,16 +49,28 @@ export default function ProfilePage() {
       return;
     }
 
-    Promise.all([
-      fetch("/api/auth/profile", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
-      fetch("/api/research/history", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
-    ])
-      .then(([profileData, historyData]) => {
+    fetch("/api/auth/profile", { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          removeToken();
+          navigate("/auth", { state: { from: "/profile" } });
+          return null;
+        }
+        return res.json();
+      })
+      .then((profileData) => {
+        if (!profileData) return;
         setProfile(profileData);
-        setResearches((historyData.researches || []).slice(0, 3));
         setNameValue(profileData.user?.name || "");
         setCompanyValue((profileData.user as Record<string, unknown>)?.company as string || "");
-        setLoading(false);
+
+        // Fetch history separately
+        return fetch("/api/research/history", { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => (r.ok ? r.json() : { researches: [] }))
+          .then((historyData) => {
+            setResearches((historyData.researches || []).slice(0, 3));
+            setLoading(false);
+          });
       })
       .catch(() => setLoading(false));
   }, [navigate]);

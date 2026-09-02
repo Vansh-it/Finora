@@ -13,7 +13,7 @@ import json
 import re
 from typing import Any, Optional
 
-from lib.provider_manager import generate_text
+from lib.provider_manager import generate_text, TaskType
 from lib.dashboard_builder import _get_metric_value, _fmt_pct, _fmt_billions, _fmt_ratio
 
 
@@ -319,7 +319,7 @@ def generate_executive_summary(session_data: dict) -> dict:
     prompt = ANALYSIS_PROMPT.format(context=json.dumps(context, indent=2, default=str))
 
     try:
-        response = generate_text(prompt)
+        response = generate_text(prompt, task_type=TaskType.EXECUTIVE_SUMMARY)
     except Exception as exc:
         raise RuntimeError(f"LLM generation failed: {exc}")
 

@@ -8,6 +8,7 @@ import SourceStamp from "../components/SourceStamp";
 import DocumentCard from "../components/DocumentCard";
 import PaperTexture from "../components/PaperTexture";
 import AnimatedMetric from "../components/AnimatedMetric";
+import FinoraFAQ from "../components/FinoraFAQ";
 
 const PIPELINE = [
   { n: "01", title: "Identify", desc: "Resolve the company & ticker to an authoritative filer.", icon: "card" },
@@ -56,63 +57,93 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Right: editorial collage */}
+            {/* Right: editorial research desk */}
             <div className="relative hidden min-h-[560px] lg:block">
-              <DocumentCard rotate={-3} className="absolute top-0 right-4 w-64">
-                <div className="font-mono text-[9px] tracking-[0.2em] text-ink-3 uppercase">Form 10-K · Annual Report</div>
-                <div className="mt-2 font-serif text-sm leading-snug text-ink">
-                  "Net sales increased 2% during fiscal 2025 compared to fiscal 2024..."
-                </div>
-                <div className="mark-highlight mt-2 inline-block font-mono text-xs font-bold">$398.8B revenue</div>
-                <FileText size={14} className="mt-3 text-ink-3" />
-              </DocumentCard>
+              {/* ——— CONNECTOR — clean curved path from 10-K → ROIC ——— */}
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                viewBox="0 0 400 560"
+                fill="none"
+              >
+                <path
+                  d="M 300 95 C 280 140, 200 155, 115 200"
+                  stroke="#3978FF"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  fill="none"
+                  opacity="0.45"
+                />
+                <polygon
+                  points="113,203 119,194 108,196"
+                  fill="#3978FF"
+                  opacity="0.45"
+                />
+              </svg>
 
-              <DocumentCard rotate={2} className="absolute top-[190px] left-0 w-52">
-                <Annotation label="ROIC Formula" tone="blue" />
-                <div className="mt-2 font-mono text-xs leading-relaxed text-ink">
-                  ROIC =<br />
-                  NOPAT / Invested Capital
-                </div>
-              </DocumentCard>
+              {/* ——— 10-K CARD — top right ——— */}
+              <div className="absolute top-0 right-4 w-64">
+                <DocumentCard rotate={1.5} className="relative w-full overflow-hidden">
+                  <div className="font-mono text-[9px] tracking-[0.2em] text-ink-3 uppercase">
+                    Form 10-K · Annual Report
+                  </div>
+                  <div className="mt-2 font-serif text-sm leading-snug text-ink">
+                    "Net sales increased 2% during fiscal 2025 compared to fiscal 2024..."
+                  </div>
+                  <div className="mark-highlight mt-2 inline-block font-mono text-xs font-bold">
+                    $398.8B revenue
+                  </div>
+                  <FileText size={14} className="mt-3 text-ink-3" />
+                </DocumentCard>
+              </div>
 
-              <DocumentCard rotate={-1.5} className="absolute top-[230px] right-0 w-60">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">NASDAQ · AAPL</span>
-                  <TrendingUp size={14} className="text-annotate-green" />
-                </div>
-                <svg viewBox="0 0 120 40" className="mt-2 h-10 w-full">
-                  <polyline
-                    points="0,32 15,28 30,30 45,20 60,22 75,12 90,15 105,6 120,8"
-                    fill="none"
-                    stroke="#111111"
-                    strokeWidth="1.5"
-                  />
-                </svg>
-                <div className="mt-1 font-mono text-lg font-bold text-ink">$231.40</div>
-              </DocumentCard>
+              {/* ——— ROIC CARD — center left ——— */}
+              <div className="absolute top-[200px] left-0 w-52">
+                <DocumentCard rotate={-1} className="w-full">
+                  <div className="font-mono text-[10px] font-bold tracking-widest text-annotate-blue uppercase">
+                    ROIC Formula
+                  </div>
+                  <div className="mt-2 font-mono text-xs leading-relaxed text-ink">
+                    ROIC =<br />NOPAT / Invested Capital
+                  </div>
+                </DocumentCard>
+              </div>
 
-              <div className="absolute top-[420px] left-8">
+              {/* ——— MARKET CARD — center/lower right ——— */}
+              <div className="absolute top-[290px] right-0 w-60">
+                <DocumentCard rotate={0.5} className="w-full">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">
+                      NASDAQ · AAPL
+                    </span>
+                    <TrendingUp size={14} className="text-annotate-green" />
+                  </div>
+                  <svg viewBox="0 0 120 40" className="mt-2 h-10 w-full">
+                    <polyline
+                      points="0,32 15,28 30,30 45,20 60,22 75,12 90,15 105,6 120,8"
+                      fill="none"
+                      stroke="#111111"
+                      strokeWidth="1.5"
+                    />
+                  </svg>
+                  <div className="mt-1 font-mono text-lg font-bold text-ink">$231.40</div>
+                </DocumentCard>
+              </div>
+
+              {/* ——— SEC VERIFIED STAMP — lower left ——— */}
+              <div className="absolute top-[440px] left-8">
                 <SourceStamp tone="blue">SEC Verified</SourceStamp>
               </div>
 
-              <DocumentCard rotate={1} className="absolute bottom-0 right-10 w-56">
-                <Annotation label="Cross-Verification" tone="red" />
-                <div className="mt-2 flex items-center gap-2 font-mono text-xs text-ink">
-                  <CheckCircle2 size={14} className="text-annotate-green" />
-                  9 sources · 7 cross-verified
-                </div>
-              </DocumentCard>
-
-              {/* hand-drawn connecting line */}
-              <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 400 560" fill="none">
-                <path
-                  d="M 260 90 C 220 130, 190 150, 150 190"
-                  stroke="#3978FF"
-                  strokeWidth="1.5"
-                  strokeDasharray="4 4"
-                />
-                <path d="M 150 190 l 8 -4 l -2 9 z" fill="#3978FF" />
-              </svg>
+              {/* ——— CROSS-VERIFICATION CARD — bottom right ——— */}
+              <div className="absolute bottom-0 right-10 w-56">
+                <DocumentCard rotate={1} className="w-full">
+                  <Annotation label="Cross-Verification" tone="red" />
+                  <div className="mt-2 flex items-center gap-2 font-mono text-xs text-ink">
+                    <CheckCircle2 size={14} className="text-annotate-green" />
+                    9 sources · 7 cross-verified
+                  </div>
+                </DocumentCard>
+              </div>
             </div>
           </div>
         </div>
@@ -174,6 +205,8 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* FAQ SECTION */}
+      <FinoraFAQ />
 
     </div>
   );

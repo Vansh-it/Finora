@@ -4,6 +4,7 @@ import Footer from "./components/Footer";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./pages/HomePage";
+import ChatPage from "./pages/ChatPage";
 import ResearchPage from "./pages/ResearchPage";
 import DashboardPage from "./pages/DashboardPage";
 import HistoryPage from "./pages/HistoryPage";
@@ -24,6 +25,14 @@ export default function App() {
           <main className="flex-1">
             <Routes>
               <Route path="/" element={<HomePage />} />
+              <Route
+                path="/chat"
+                element={
+                  <ProtectedRoute>
+                    <ChatPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/methodology" element={<MethodologyPage />} />
               <Route path="/auth" element={<AuthPage />} />

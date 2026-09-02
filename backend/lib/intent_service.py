@@ -542,7 +542,7 @@ def _llm_classify(prompt: str, timeout: float = 8.0) -> Optional[IntentResult]:
     Returns IntentResult on success, None on timeout/error/malformed output.
     """
     try:
-        from lib.provider_manager import generate_text
+        from lib.provider_manager import generate_text, TaskType
     except ImportError:
         return None
 
@@ -552,7 +552,7 @@ def _llm_classify(prompt: str, timeout: float = 8.0) -> Optional[IntentResult]:
     def _do_llm():
         try:
             full_prompt = f"{_CLASSIFY_PROMPT}\n\nUser: {prompt.strip()}"
-            raw = generate_text(full_prompt)
+            raw = generate_text(full_prompt, task_type=TaskType.INTENT_CLASSIFY)
             parsed = _extract_json(raw)
             result_holder[0] = _build_llm_result(parsed)
         except Exception as exc:

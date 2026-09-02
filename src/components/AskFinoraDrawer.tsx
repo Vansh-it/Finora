@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { X, ArrowUp, Sparkles, Loader2 } from "lucide-react";
 import ChatMessage, { type ChatMessageData } from "./ChatMessage";
 import { sendDashboardChatMessage, type ChatHistoryMessage } from "../lib/api";
+import { getToken } from "../lib/auth";
 
 const SUGGESTED = [
   "How did you calculate ROIC?",
@@ -37,17 +38,17 @@ export default function AskFinoraDrawer({ sessionId }: AskFinoraDrawerProps) {
 
     try {
       let res;
+      const token = getToken() || undefined;
       if (sessionId) {
-        res = await sendDashboardChatMessage(question, sessionId, chatHistoryRef.current.slice(-10));
+        res = await sendDashboardChatMessage(question, sessionId, chatHistoryRef.current.slice(-10), token);
       } else {
         // Fallback to regular chat if no session
         const { sendChatMessage } = await import("../lib/api");
-        res = await sendChatMessage(question, chatHistoryRef.current.slice(-10));
+        res = await sendChatMessage(question, chatHistoryRef.current.slice(-10), token);
       }
 
       const assistantMsg: ChatMessageData = {
         role: "assistant",
-        headline: "Research Note",
         content: res.response,
         bold: [],
         source: `Finora AI · ${res.elapsed_ms}ms`,
@@ -115,7 +116,7 @@ export default function AskFinoraDrawer({ sessionId }: AskFinoraDrawerProps) {
               {loading && (
                 <div className="flex items-center gap-2 text-ink-3">
                   <Loader2 size={16} className="animate-spin" />
-                  <span className="font-mono text-xs">Thinking...</span>
+                  <span className="font-mono text-xs">Finora is reading this research…</span>
                 </div>
               )}
             </div>

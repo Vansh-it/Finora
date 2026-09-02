@@ -16,6 +16,7 @@ import AskFinoraDrawer from "../components/AskFinoraDrawer";
 import EditorialHeading from "../components/EditorialHeading";
 import HighlightText from "../components/HighlightText";
 import { getResearchResult } from "../lib/api";
+import { getToken, removeToken } from "../lib/auth";
 
 // Types matching the backend dashboard payload
 interface DashboardData {
@@ -140,16 +141,28 @@ export default function DashboardPage() {
     let cancelled = false;
 
     async function fetchData() {
+      const token = getToken();
+      if (!token) {
+        navigate("/auth", { state: { from: `/dashboard?session_id=${sessionId}` } });
+        return;
+      }
+
       try {
-        const result = await getResearchResult(sessionId!);
+        const result = await getResearchResult(sessionId!, token);
         if (!cancelled) {
           setData(result as unknown as DashboardData);
           setLoading(false);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load research data");
-          setLoading(false);
+          const msg = err instanceof Error ? err.message : "Failed to load research data";
+          if (msg.includes("401") || msg.includes("Invalid") || msg.includes("expired")) {
+            removeToken();
+            navigate("/auth", { state: { from: `/dashboard?session_id=${sessionId}` } });
+          } else {
+            setError(msg);
+            setLoading(false);
+          }
         }
       }
     }

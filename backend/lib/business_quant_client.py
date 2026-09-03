@@ -25,6 +25,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from dotenv import load_dotenv
+from lib.cache import BoundedTTLCache
 from pathlib import Path
 
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -40,44 +41,19 @@ RETRY_BACKOFF = 1.5  # seconds
 MIN_REQUEST_INTERVAL = 0.2  # seconds between requests
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
-_cache: dict[str, tuple[float, Any]] = {}
+_bq_cache = BoundedTTLCache(maxsize=1000, ttl=3600, name="bq")
 _last_request_time: float = 0.0
 
-
-def _cache_key(url: str) -> str:
-    return hashlib.md5(url.encode()).hexdigest()
-
-
-def _get_cached(url: str, ttl_seconds: float = 3600.0) -> Optional[Any]:
-    key = _cache_key(url)
-    if key in _cache:
-        ts, data = _cache[key]
-        if time.time() - ts < ttl_seconds:
-            return data
-    return None
-
-
-def _set_cache(url: str, data: Any) -> None:
-    _cache[_cache_key(url)] = (time.time(), data)
-
-
 def clear_cache() -> None:
-    """Drop all cached BQ responses — useful for tests."""
-    _cache.clear()
+    """Drop all cached bq responses -- useful for tests."""
+    _bq_cache.clear()
+def _get_cached(key: str, ttl_seconds: float = 3600.0):
+    """Return cached value or None."""
+    return _bq_cache.get(key)
 
-
-def _respect_rate_limit() -> None:
-    global _last_request_time
-    elapsed = time.time() - _last_request_time
-    if elapsed < MIN_REQUEST_INTERVAL:
-        time.sleep(MIN_REQUEST_INTERVAL - elapsed)
-    _last_request_time = time.time()
-
-
-# ── API Key ───────────────────────────────────────────────────────────────────
-def _get_api_key() -> str:
-    key = os.getenv("BUSINESS_QUANT_API_KEY", "").strip()
-    return key
+def _set_cache(key: str, data):
+    """Store value in cache."""
+    _bq_cache.set(key, data)
 
 
 def is_available() -> bool:

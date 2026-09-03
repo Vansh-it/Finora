@@ -18,6 +18,8 @@ from lib.jina_client import (
     reset_read_count,
     _get_api_key,
 )
+import lib.jina_client as _jmod
+_jmod._SSRF_ENABLED = False  # tests mock the HTTP layer; skip SSRF DNS
 
 
 @pytest.fixture(autouse=True)

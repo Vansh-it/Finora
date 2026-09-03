@@ -20,6 +20,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 
 from dotenv import load_dotenv
+from lib.netutil import apply_ipv4_first as _net_fix
+_net_fix()
+from lib.cache import BoundedTTLCache, single_flight
 
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(_env_path, override=True)
@@ -44,34 +47,24 @@ def _get_user_agent() -> str:
     return ua
 
 
-# ── In-memory cache ──────────────────────────────────────────────────────────
-_cache: dict[str, tuple[float, Any]] = {}
+# -- Bounded TTL+LRU cache ---
+_sec_cache = BoundedTTLCache(maxsize=2000, ttl=3600.0, name="sec")
 _last_request_time: float = 0.0
-
-
-def _cache_key(url: str) -> str:
-    return hashlib.md5(url.encode()).hexdigest()
 
 
 def _get_cached(url: str, ttl_seconds: float = 3600.0) -> Optional[Any]:
     """Return cached response if still valid."""
-    key = _cache_key(url)
-    if key in _cache:
-        ts, data = _cache[key]
-        if time.time() - ts < ttl_seconds:
-            return data
-    return None
+    return _sec_cache.get(url)
 
 
 def _set_cache(url: str, data: Any) -> None:
     """Store response in cache."""
-    _cache[_cache_key(url)] = (time.time(), data)
+    _sec_cache.set(url, data)
 
 
 def clear_cache() -> None:
-    """Drop all cached SEC responses — useful for tests."""
-    _cache.clear()
-
+    """Drop all cached SEC responses -- useful for tests."""
+    _sec_cache.clear()
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 def _respect_rate_limit() -> None:

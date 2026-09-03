@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from dotenv import load_dotenv
+from lib.netutil import apply_ipv4_first as _net_fix
+_net_fix()
 from pathlib import Path
 
 logger = logging.getLogger("finora.provider")

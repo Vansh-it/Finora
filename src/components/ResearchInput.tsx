@@ -1,23 +1,72 @@
-import { useState, useEffect, useRef, type FormEvent } from "react";
-import { ArrowRight, AlertCircle } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
+import { ArrowRight, AlertCircle, Search, Building2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TickerChip from "./TickerChip";
 import { isAuthenticated } from "../lib/auth";
 
 const QUICK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"];
 
+interface Suggestion {
+  ticker: string;
+  name: string;
+  exchange?: string;
+  cik?: string;
+}
+
 export default function ResearchInput() {
   const [value, setValue] = useState("");
   const [showError, setShowError] = useState(false);
   const [shaking, setShaking] = useState(false);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const navigate = useNavigate();
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
     };
+  }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const fetchSuggestions = useCallback(async (query: string) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/company/suggest?q=${encodeURIComponent(query)}&limit=8`);
+      if (res.ok) {
+        const data = await res.json();
+        // Handle both {results: [...]} and [...] response formats
+        const items = Array.isArray(data) ? data : (data.results || []);
+        setSuggestions(items);
+        setShowSuggestions(items.length > 0);
+        setSelectedIndex(-1);
+      }
+    } catch {
+      // Silently ignore autocomplete errors
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   function triggerError() {
@@ -29,10 +78,10 @@ export default function ResearchInput() {
     inputRef.current?.focus();
   }
 
-  function handleSubmit(e: FormEvent) {
+  function handleSubmit(e: FormEvent, tickerOverride?: string) {
     e.preventDefault();
-    const ticker = value.trim().toUpperCase();
-    if (!ticker) {
+    const query = tickerOverride || value.trim();
+    if (!query) {
       triggerError();
       return;
     }
@@ -40,11 +89,50 @@ export default function ResearchInput() {
       navigate("/auth", { state: { from: "/research" } });
       return;
     }
-    navigate(`/research?ticker=${ticker}`);
+    // If it looks like a ticker (1-5 uppercase letters), use as ticker
+    // Otherwise use as search query
+    const isTicker = /^[A-Za-z]{1,5}$/.test(query);
+    if (isTicker) {
+      navigate(`/research?ticker=${query.toUpperCase()}`);
+    } else {
+      navigate(`/research?ticker=${encodeURIComponent(query)}`);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        );
+        break;
+      case "Enter":
+        if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+          e.preventDefault();
+          const s = suggestions[selectedIndex];
+          setValue(s.ticker || s.name);
+          setShowSuggestions(false);
+          handleSubmit(e, s.ticker || s.name);
+        }
+        break;
+      case "Escape":
+        setShowSuggestions(false);
+        setSelectedIndex(-1);
+        break;
+    }
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full relative">
       <form
         onSubmit={handleSubmit}
         className={`relative flex flex-col gap-3 border-2 bg-paper p-2 shadow-[6px_6px_0_0_#111111] transition-shadow duration-300 sm:flex-row sm:items-center sm:gap-0 ${
@@ -57,11 +145,24 @@ export default function ResearchInput() {
           ref={inputRef}
           value={value}
           onChange={(e) => {
-            setValue(e.target.value);
+            const v = e.target.value;
+            setValue(v);
             if (showError) setShowError(false);
+
+            // Debounced autocomplete
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => fetchSuggestions(v), 250);
           }}
+          onFocus={() => {
+            if (suggestions.length > 0) setShowSuggestions(true);
+          }}
+          onKeyDown={handleKeyDown}
           placeholder="Research Microsoft, Apple, Walmart..."
           aria-label="Research a company"
+          aria-autocomplete="list"
+          aria-expanded={showSuggestions}
+          aria-activedescendant={selectedIndex >= 0 ? `suggestion-${selectedIndex}` : undefined}
+          role="combobox"
           className="w-full flex-1 bg-transparent px-4 py-4 font-sans text-base text-ink placeholder:text-ink-3 focus:outline-none sm:text-lg"
         />
         <button
@@ -72,6 +173,49 @@ export default function ResearchInput() {
           <ArrowRight size={15} />
         </button>
       </form>
+
+      {/* Autocomplete dropdown */}
+      {showSuggestions && suggestions.length > 0 && (
+        <div
+          ref={dropdownRef}
+          role="listbox"
+          aria-label="Company suggestions"
+          className="absolute z-50 mt-1 w-full border-2 border-ink bg-paper shadow-[4px_4px_0_0_#111111] overflow-hidden"
+        >
+          {suggestions.map((s, i) => (
+            <div
+              key={`${s.ticker}-${i}`}
+              id={`suggestion-${i}`}
+              role="option"
+              aria-selected={i === selectedIndex}
+              className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                i === selectedIndex
+                  ? "bg-ink text-paper"
+                  : "hover:bg-ink-5 text-ink"
+              } ${i > 0 ? "border-t border-ink-10" : ""}`}
+              onClick={(e) => {
+                setValue(s.ticker || s.name);
+                setShowSuggestions(false);
+                handleSubmit(e, s.ticker || s.name);
+              }}
+              onMouseEnter={() => setSelectedIndex(i)}
+            >
+              <Building2 size={14} className={i === selectedIndex ? "text-paper-3" : "text-ink-3"} />
+              <div className="flex-1 min-w-0">
+                <div className="font-sans text-sm font-semibold truncate">
+                  {s.name}
+                </div>
+              </div>
+              <div className={`flex items-center gap-2 shrink-0 ${i === selectedIndex ? "text-paper-3" : "text-ink-3"}`}>
+                <span className="font-mono text-xs font-bold">{s.ticker}</span>
+                {s.exchange && (
+                  <span className="font-mono text-[10px]">{s.exchange}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Premium validation toast */}
       <div

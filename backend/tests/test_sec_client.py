@@ -15,9 +15,9 @@ from lib.sec_client import (
     get_ticker_mapping,
     clear_cache,
     _get_user_agent,
-    _cache_key,
     _get_cached,
     _set_cache,
+    _sec_cache,
 )
 
 
@@ -58,13 +58,18 @@ class TestCache:
         assert result is None
 
     def test_cache_expiry(self):
-        _set_cache("expiring_url", {"data": "old"})
-        # Manually expire
-        from lib.sec_client import _cache
-        key = _cache_key("expiring_url")
-        _cache[key] = (time.time() - 100, {"data": "old"})
-        result = _get_cached("expiring_url", ttl_seconds=10)
-        assert result is None
+        from lib.sec_client import _sec_cache
+        # Temporarily override the cache TTL to expire quickly
+        old_ttl = _sec_cache.ttl
+        _sec_cache.ttl = 0.01
+        try:
+            _set_cache("expiring_url", {"data": "old"})
+            import time as _time
+            _time.sleep(0.02)
+            result = _get_cached("expiring_url")
+            assert result is None
+        finally:
+            _sec_cache.ttl = old_ttl
 
     def test_clear_cache(self):
         _set_cache("clear_test", {"data": "yes"})

@@ -19,6 +19,13 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from dotenv import load_dotenv
+from lib import ssrf_guard as _ssrf_guard_mod
+
+# Module-level flag: set to False to disable SSRF checks (for tests)
+_SSRF_ENABLED = True
+from lib.netutil import apply_ipv4_first as _net_fix
+from lib.cache import BoundedTTLCache
+_net_fix()
 
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(_env_path, override=True)
@@ -44,33 +51,21 @@ def _get_api_key() -> str:
 
 
 # ── In-memory cache ──────────────────────────────────────────────────────────
-_cache: dict[str, tuple[float, dict]] = {}
+_jina_cache = BoundedTTLCache(maxsize=500, ttl=7200, name="jina")
 _last_request_time: float = 0.0
 _read_count: int = 0
 
 
-def _cache_key(url: str) -> str:
-    return hashlib.md5(url.strip().lower().encode()).hexdigest()
-
-
-def _get_cached(url: str, ttl_seconds: float = 7200.0) -> Optional[dict]:
-    """Return cached read result if still valid."""
-    key = _cache_key(url)
-    if key in _cache:
-        ts, data = _cache[key]
-        if time.time() - ts < ttl_seconds:
-            return data
-    return None
-
-
-def _set_cache(url: str, data: dict) -> None:
-    """Store read result in cache."""
-    _cache[_cache_key(url)] = (time.time(), data)
-
-
 def clear_cache() -> None:
-    """Drop all cached Jina reads — useful for tests."""
-    _cache.clear()
+    """Drop all cached jina responses -- useful for tests."""
+    _jina_cache.clear()
+def _get_cached(key: str, ttl_seconds: float = 3600.0):
+    """Return cached value or None."""
+    return _jina_cache.get(key)
+
+def _set_cache(key: str, data):
+    """Store value in cache."""
+    _jina_cache.set(key, data)
 
 
 def get_read_count() -> int:
@@ -126,6 +121,19 @@ def read_url(
         If the response is invalid.
     """
     global _read_count
+
+    # SSRF protection: validate URL before fetching
+    if _SSRF_ENABLED:
+        ok, reason = _ssrf_guard_mod.validate_url(url)
+        if not ok:
+            return {
+                "url": url,
+                "status": "blocked",
+                "content": "",
+                "content_length": 0,
+                "title": "",
+                "error": f"URL blocked by security policy: {reason}",
+            }
 
     # Check cache first
     if cache_ttl > 0:

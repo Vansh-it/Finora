@@ -12,13 +12,17 @@ import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
+from lib.netutil import apply_ipv4_first as _net_fix
+from lib.cache import BoundedTTLCache
+_net_fix()
 from typing import Any, Optional
 
 # ── Cache ────────────────────────────────────────────────────────────────────
-_cache: dict[str, dict] = {}
-_cache_ttl = 3600  # 1 hour
-_historical_cache_ttl = 86400 * 30  # 30 days for historical (prices don't change)
+_twelve_cache = BoundedTTLCache(maxsize=2000, ttl=3600, name="twelve")
 
+def clear_cache() -> None:
+    """Drop all cached twelve responses -- useful for tests."""
+    _twelve_cache.clear()
 
 def _get_api_key() -> str:
     key = os.environ.get("TWELVE_DATA_API_KEY", "")
@@ -27,30 +31,9 @@ def _get_api_key() -> str:
     return key
 
 
-def _cache_get(url: str) -> Optional[dict]:
-    entry = _cache.get(url)
-    if entry:
-        # Use longer TTL for historical data
-        ttl = _historical_cache_ttl if "historical:" in url else _cache_ttl
-        if (time.time() - entry["ts"]) < ttl:
-            return entry["data"]
-    return None
-
-
-def _cache_set(url: str, data: dict) -> None:
-    _cache[url] = {"data": data, "ts": time.time()}
-
-
-def clear_cache() -> None:
-    """Clear all cached responses (for tests)."""
-    _cache.clear()
-
-
-# ── API calls ────────────────────────────────────────────────────────────────
-
 def fetch_quote(ticker: str, retries: int = 1, timeout: int = 8) -> dict:
     """Fetch real-time quote for a ticker."""
-    cached = _cache_get(f"quote:{ticker}")
+    cached = _twelve_cache.get(f"quote:{ticker}")
     if cached:
         return cached
 
@@ -70,7 +53,7 @@ def fetch_quote(ticker: str, retries: int = 1, timeout: int = 8) -> dict:
             if isinstance(data, dict) and "code" in data and "message" in data:
                 raise ValueError(f"Twelve Data error: {data['message']}")
 
-            _cache_set(f"quote:{ticker}", data)
+            _twelve_cache.set(f"quote:{ticker}", data)
             return data
 
         except urllib.error.HTTPError as exc:
@@ -102,7 +85,7 @@ def fetch_time_series(
 
     Returns dict with 'values' list of {datetime, open, high, low, close, volume}.
     """
-    cached = _cache_get(f"ts:{ticker}:{interval}:{outputsize}")
+    cached = _twelve_cache.get(f"ts:{ticker}:{interval}:{outputsize}")
     if cached:
         return cached
 
@@ -123,7 +106,7 @@ def fetch_time_series(
             if isinstance(data, dict) and "code" in data and "message" in data:
                 raise ValueError(f"Twelve Data error: {data['message']}")
 
-            _cache_set(f"ts:{ticker}:{interval}:{outputsize}", data)
+            _twelve_cache.set(f"ts:{ticker}:{interval}:{outputsize}", data)
             return data
 
         except urllib.error.HTTPError as exc:
@@ -160,7 +143,7 @@ def fetch_historical_price(
         or None if unavailable.
     """
     cache_key = f"historical:{ticker}:{target_date}"
-    cached = _cache_get(cache_key)
+    cached = _twelve_cache.get(cache_key)
     if cached:
         return cached
 
@@ -197,7 +180,7 @@ def fetch_historical_price(
             values = data.get("values", [])
             if not values:
                 result = None
-                _cache_set(cache_key, result or {"_empty": True})
+                _twelve_cache.set(cache_key, result or {"_empty": True})
                 return None
 
             # Find the closest date on or before target_date
@@ -212,7 +195,7 @@ def fetch_historical_price(
                         best_date = dt_str
 
             if best is None:
-                _cache_set(cache_key, {"_empty": True})
+                _twelve_cache.set(cache_key, {"_empty": True})
                 return None
 
             close_val = None
@@ -223,7 +206,7 @@ def fetch_historical_price(
                     pass
 
             if close_val is None:
-                _cache_set(cache_key, {"_empty": True})
+                _twelve_cache.set(cache_key, {"_empty": True})
                 return None
 
             result = {
@@ -231,7 +214,7 @@ def fetch_historical_price(
                 "date": best_date,
                 "source": "Twelve Data",
             }
-            _cache_set(cache_key, result)
+            _twelve_cache.set(cache_key, result)
             return result
 
         except urllib.error.HTTPError as exc:

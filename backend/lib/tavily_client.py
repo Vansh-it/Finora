@@ -16,6 +16,9 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from dotenv import load_dotenv
+from lib.netutil import apply_ipv4_first as _net_fix
+from lib.cache import BoundedTTLCache
+_net_fix()
 
 from pathlib import Path
 
@@ -42,33 +45,19 @@ def _get_api_key() -> str:
 
 
 # ── In-memory cache ──────────────────────────────────────────────────────────
-_cache: dict[str, tuple[float, Any]] = {}
+_tavily_cache = BoundedTTLCache(maxsize=500, ttl=3600, name="tavily")
 _last_request_time: float = 0.0
-_search_count: int = 0  # track searches for debugging
-
-
-def _cache_key(query: str) -> str:
-    return hashlib.md5(query.lower().strip().encode()).hexdigest()
-
-
-def _get_cached(query: str, ttl_seconds: float = 3600.0) -> Optional[Any]:
-    """Return cached response if still valid."""
-    key = _cache_key(query)
-    if key in _cache:
-        ts, data = _cache[key]
-        if time.time() - ts < ttl_seconds:
-            return data
-    return None
-
-
-def _set_cache(query: str, data: Any) -> None:
-    """Store response in cache."""
-    _cache[_cache_key(query)] = (time.time(), data)
-
 
 def clear_cache() -> None:
-    """Drop all cached Tavily responses — useful for tests."""
-    _cache.clear()
+    """Drop all cached tavily responses -- useful for tests."""
+    _tavily_cache.clear()
+def _get_cached(key: str, ttl_seconds: float = 3600.0):
+    """Return cached value or None."""
+    return _tavily_cache.get(key)
+
+def _set_cache(key: str, data):
+    """Store value in cache."""
+    _tavily_cache.set(key, data)
 
 
 def get_search_count() -> int:

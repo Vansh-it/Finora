@@ -1545,4 +1545,7 @@ def api_run_research():
     except Exception as exc:
         return jsonify({"status": "error", "session_id": session_id, "error": str(exc)}), 500
 
-
+# -- Entrypoint ---------------------------------------------------------------
+if __name__ == '__main__':
+    print('Starting Finora backend on port 8000...')
+    app.run(host='0.0.0.0', port=8000, debug=False)

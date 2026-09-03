@@ -1147,90 +1147,94 @@ def api_dashboard_chat():
     if session_id:
         session = get_session(session_id)
         if session:
-            # Compact session context
-            meta = session.company_meta or {}
-            stmts = session.financial_statements or {}
-            metrics = session.calculated_metrics or {}
-            valuation = session.valuation_metrics or {}
-            summary = session.executive_summary or {}
-            verification = session.verification_results or {}
+            try:
+                # Compact session context
+                meta = session.company_meta or {}
+                stmts = session.financial_statements or {}
+                metrics = session.calculated_metrics or {}
+                valuation = session.valuation_metrics or {}
+                summary = session.executive_summary or {}
+                verification = session.verification_results or {}
 
-            periods = stmts.get("periods", [])
-            latest = periods[-1] if periods else ""
+                periods = stmts.get("periods", [])
+                latest = periods[-1] if periods else ""
 
-            # Company info
-            ctx_parts = [
-                f"Company: {meta.get('name', session.company)} ({meta.get('ticker', '')})",
-                f"Ticker: {meta.get('ticker', '')}  Exchange: {meta.get('exchange', '')}",
-                f"Periods: {', '.join(periods)}",
-                f"Latest period: {latest}",
-            ]
+                # Company info
+                ctx_parts = [
+                    f"Company: {meta.get('name', session.company)} ({meta.get('ticker', '')})",
+                    f"Ticker: {meta.get('ticker', '')}  Exchange: {meta.get('exchange', '')}",
+                    f"Periods: {', '.join(periods)}",
+                    f"Latest period: {latest}",
+                ]
 
-            # Key financials
-            income = stmts.get("income_statement", {})
-            if latest:
-                for key in ["revenue", "gross_profit", "operating_income", "net_income", "diluted_eps"]:
-                    fact = income.get(key, {})
-                    if isinstance(fact, dict) and latest in fact:
-                        val = fact[latest].get("value")
-                        if val is not None:
-                            ctx_parts.append(f"{key}: ${val/1e9:.1f}B" if abs(val) >= 1e9 else f"{key}: ${val:.2f}")
-                    elif isinstance(fact, dict) and "value" in fact:
-                        val = fact["value"]
-                        if val is not None:
-                            ctx_parts.append(f"{key}: ${val/1e9:.1f}B" if abs(val) >= 1e9 else f"{key}: ${val:.2f}")
+                # Key financials
+                income = stmts.get("income_statement", {})
+                if latest:
+                    for key in ["revenue", "gross_profit", "operating_income", "net_income", "diluted_eps"]:
+                        fact = income.get(key, {})
+                        if isinstance(fact, dict) and latest in fact and isinstance(fact[latest], dict):
+                            val = fact[latest].get("value")
+                            if val is not None:
+                                ctx_parts.append(f"{key}: ${val/1e9:.1f}B" if abs(val) >= 1e9 else f"{key}: ${val:.2f}")
+                        elif isinstance(fact, dict) and "value" in fact:
+                            val = fact["value"]
+                            if val is not None:
+                                ctx_parts.append(f"{key}: ${val/1e9:.1f}B" if abs(val) >= 1e9 else f"{key}: ${val:.2f}")
 
-            # Calculated metrics with methodology
-            annual = metrics.get("annual_metrics", {})
-            if latest and latest in annual:
-                for mid in ["gross_margin", "operating_margin", "net_margin", "roa", "roe", "roic",
-                           "free_cash_flow", "current_ratio", "debt_to_equity", "roce",
-                           "ebitda", "ebitda_margin", "fcf_margin", "cash_conversion",
-                           "interest_coverage", "debt_to_ebitda", "asset_turnover"]:
-                    m = annual[latest].get(mid, {})
-                    if isinstance(m, dict) and m.get("status") == "calculated":
-                        calc_str = m.get('calculation', '')
-                        formula_str = m.get('formula', '')
-                        ctx_parts.append(
-                            f"{mid}: {m.get('display_value', '')} | "
-                            f"Formula: {formula_str} | "
-                            f"Calculation: {calc_str}"
-                        )
-                # Also include growth metrics
-                growth = metrics.get("growth_metrics", {})
-                for glbl, gm_group in growth.items():
-                    for mid in ["revenue_growth", "net_income_growth", "eps_growth"]:
-                        m = gm_group.get(mid, {})
+                # Calculated metrics with methodology
+                annual = metrics.get("annual_metrics", {})
+                if latest and latest in annual:
+                    for mid in ["gross_margin", "operating_margin", "net_margin", "roa", "roe", "roic",
+                               "free_cash_flow", "current_ratio", "debt_to_equity", "roce",
+                               "ebitda", "ebitda_margin", "fcf_margin", "cash_conversion",
+                               "interest_coverage", "debt_to_ebitda", "asset_turnover"]:
+                        m = annual[latest].get(mid, {})
                         if isinstance(m, dict) and m.get("status") == "calculated":
-                            ctx_parts.append(f"{mid} ({glbl}): {m.get('display_value', '')}")
-                # Unavailable metrics
-                for mid, m in annual[latest].items():
-                    if isinstance(m, dict) and m.get("status") == "unavailable":
-                        ctx_parts.append(f"{mid}: UNAVAILABLE — {m.get('reason', 'unknown')}")
+                            calc_str = m.get('calculation', '')
+                            formula_str = m.get('formula', '')
+                            ctx_parts.append(
+                                f"{mid}: {m.get('display_value', '')} | "
+                                f"Formula: {formula_str} | "
+                                f"Calculation: {calc_str}"
+                            )
+                    # Also include growth metrics
+                    growth = metrics.get("growth_metrics", {})
+                    for glbl, gm_group in growth.items():
+                        for mid in ["revenue_growth", "net_income_growth", "eps_growth"]:
+                            m = gm_group.get(mid, {})
+                            if isinstance(m, dict) and m.get("status") == "calculated":
+                                ctx_parts.append(f"{mid} ({glbl}): {m.get('display_value', '')}")
+                    # Unavailable metrics
+                    for mid, m in annual[latest].items():
+                        if isinstance(m, dict) and m.get("status") == "unavailable":
+                            ctx_parts.append(f"{mid}: UNAVAILABLE — {m.get('reason', 'unknown')}")
 
-            # Valuation
-            val_metrics = valuation.get("valuation_metrics", {})
-            for vm in ["share_price", "market_cap", "pe_ratio", "ev_to_revenue"]:
-                m = val_metrics.get(vm, {})
-                if isinstance(m, dict) and m.get("status") == "calculated":
-                    ctx_parts.append(f"{vm}: {m.get('display_value', '')}")
+                # Valuation
+                val_metrics = valuation.get("valuation_metrics", {})
+                for vm in ["share_price", "market_cap", "pe_ratio", "ev_to_revenue"]:
+                    m = val_metrics.get(vm, {})
+                    if isinstance(m, dict) and m.get("status") == "calculated":
+                        ctx_parts.append(f"{vm}: {m.get('display_value', '')}")
 
-            # Executive summary overview
-            if summary.get("executive_overview"):
-                ctx_parts.append(f"\nExecutive Summary: {summary['executive_overview'][:500]}")
+                # Executive summary overview
+                if summary.get("executive_overview"):
+                    ctx_parts.append(f"\nExecutive Summary: {summary['executive_overview'][:500]}")
 
-            # Key findings
-            if summary.get("highlights"):
-                for h in summary["highlights"][:3]:
-                    ctx_parts.append(f"Highlight: {h.get('title', '')} — {h.get('text', '')[:200]}")
+                # Key findings
+                if summary.get("highlights"):
+                    for h in summary["highlights"][:3]:
+                        ctx_parts.append(f"Highlight: {h.get('title', '')} — {h.get('text', '')[:200]}")
 
-            # Data quality
-            ver_summary = verification.get("summary", {})
-            cross = ver_summary.get("exact_matches", 0) + ver_summary.get("within_tolerance", 0)
-            if cross > 0:
-                ctx_parts.append(f"\nData Quality: {cross} metrics cross-verified against external sources.")
+                # Data quality
+                ver_summary = verification.get("summary", {})
+                cross = ver_summary.get("exact_matches", 0) + ver_summary.get("within_tolerance", 0)
+                if cross > 0:
+                    ctx_parts.append(f"\nData Quality: {cross} metrics cross-verified against external sources.")
 
-            session_context = "\n".join(ctx_parts)
+                session_context = "\n".join(ctx_parts)
+            except Exception as ctx_err:
+                logger.warning(f"Dashboard chat context build failed: {ctx_err}")
+                session_context = ""  # degrade gracefully — still answer without data
 
     # Build system message with research context
     system_content = FINORA_DASHBOARD_CHAT_PROMPT_TEMPLATE

@@ -12,6 +12,9 @@ import ValuationGrid from "../components/ValuationGrid";
 import SourceLedger from "../components/SourceLedger";
 import EvidenceDrawer from "../components/EvidenceDrawer";
 import AskFinoraDrawer from "../components/AskFinoraDrawer";
+import ForensicCards from "../components/ForensicCards";
+import RedFlagList from "../components/RedFlagList";
+import MacroStrip from "../components/MacroStrip";
 
 import EditorialHeading from "../components/EditorialHeading";
 import HighlightText from "../components/HighlightText";
@@ -49,6 +52,25 @@ interface DashboardData {
   efficiency: Array<{ metric: string; value: string; note: string }>;
   capital_allocation: Array<{ metric: string; value: string; note: string }>;
   dupont?: { roe: string; net_margin: string; asset_turnover: string; equity_multiplier: string; calculation: string; methodology: string } | null;
+  forensic_scores?: {
+    piotroski?: { score: number; status: string; signals: Array<{ label: string; value: number; max: number }>; interpretation: string } | null;
+    altman?: { score: number; status: string; zone: string; applicable: boolean; reason: string; factors: Array<{ name: string; value: number }>; variant: string } | null;
+    beneish?: { score: number; status: string; applicable: boolean; reason: string; indices: Array<{ name: string; value: number }> } | null;
+  };
+  watch_items?: Array<{
+    id: string;
+    title: string;
+    headline: string;
+    reason: string;
+    severity: string;
+    tag: string;
+    evidence: Record<string, unknown>;
+  }>;
+  macro_context?: {
+    available: boolean;
+    strip: Array<{ label: string; value: string; series_id?: string; date?: string }>;
+    attribution: string;
+  };
   charts: {
     revenue: Array<{ label: string; value: number }>;
     operating_income: Array<{ label: string; value: number }>;
@@ -201,6 +223,28 @@ export default function DashboardPage() {
 
             <FinancialChart data={data.charts.revenue.map((d) => ({ year: d.label, revenue: d.value, netIncome: data.charts.net_income.find((n) => n.label === d.label)?.value || 0 }))} />
 
+            {/* Macro Context Strip */}
+            <MacroStrip macro={data.macro_context} />
+
+            {/* Red Flags / Watch Items */}
+            <RedFlagList
+              flags={(data.watch_items || []).concat(
+                (data.executive_summary?.watch_items || []).map((w, i) => ({
+                  id: `exec-${i}`,
+                  title: w.tag || "WATCH",
+                  headline: w.text,
+                  reason: w.text,
+                  severity: w.tag === "RISK" ? "high" : "medium",
+                  tag: w.tag || "WATCH",
+                  evidence: {},
+                }))
+              )}
+              onInspect={setEvidenceMetric}
+            />
+
+            {/* Forensic Score Cards */}
+            <ForensicCards scores={data.forensic_scores || {}} onInspect={setEvidenceMetric} />
+
             {data.executive_summary && (
               <ExecutiveAnalysis
                 analysis={{
@@ -293,18 +337,37 @@ export default function DashboardPage() {
             ))}
           </div>
         );
-      case "VALUATION":
+      case "VALUATION": {
+        const metricsMap = Object.fromEntries(data.valuation.metrics.map((m) => [m.metric_id, m]));
+        const priceVal = data.valuation.market_data.price?.toFixed(2) || metricsMap["share_price"]?.display_value || "—";
+        const mcVal = metricsMap["market_cap"]?.display_value || "—";
+        const evVal = metricsMap["enterprise_value"]?.display_value || "—";
+        const skipIds = new Set(["share_price", "market_cap", "enterprise_value"]);
         return <ValuationGrid valuation={{
-          price: `$${data.valuation.market_data.price?.toFixed(2) || "—"}`,
-          marketCap: "—",
-          enterpriseValue: "—",
-          multiples: data.valuation.metrics.map((m) => ({
-            label: m.name,
-            value: m.display_value,
-            unavailable: m.status === "unavailable",
-            note: m.reason,
-          })),
+          price: `$${priceVal.replace(/^\$/, "")}`,
+          marketCap: mcVal,
+          enterpriseValue: evVal,
+          multiples: data.valuation.metrics
+            .filter((m) => !skipIds.has(m.metric_id))
+            .map((m) => ({
+              label: m.name,
+              value: m.display_value,
+              unavailable: m.status === "unavailable",
+              note: m.reason,
+            })),
         }} />;
+      }
+      case "FORENSICS":
+        return (
+          <div className="space-y-10">
+            <ForensicCards scores={data.forensic_scores || {}} onInspect={setEvidenceMetric} />
+            <RedFlagList
+              flags={(data.watch_items || [])}
+              onInspect={setEvidenceMetric}
+            />
+            <MacroStrip macro={data.macro_context} />
+          </div>
+        );
       case "SOURCES":
         return <SourceLedger sources={data.sources.map((s) => ({
           id: s.id,
@@ -369,14 +432,15 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-10">
       <CompanyHeader company={{
-        ticker: data.company.ticker,
-        name: data.company.name,
-        exchange: data.company.exchange,
-        sector: data.company.period,
-        fiscalYear: data.company.period,
-        price: data.valuation.market_data.price || 0,
-        priceChange: data.valuation.market_data.percent_change || 0,
-      }} />
+          ticker: data.company.ticker,
+          name: data.company.name,
+          exchange: data.company.exchange,
+          sector: data.company.period,
+          fiscalYear: data.company.period,
+          price: data.valuation.market_data.price || 0,
+          priceChange: data.valuation.market_data.percent_change || 0,
+          sessionId: sessionId || undefined,
+        }} />
 
       <div className="my-8">
         <ResearchQualityBar quality={{

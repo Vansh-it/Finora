@@ -8,6 +8,7 @@ export const TABS = [
   "GROWTH",
   "PROFITABILITY",
   "VALUATION",
+  "FORENSICS",
   "SOURCES",
 ] as const;
 

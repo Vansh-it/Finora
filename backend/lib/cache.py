@@ -282,6 +282,11 @@ tavily_cache = BoundedTTLCache(maxsize=6000, ttl=21600.0, name="tavily")
 jina_cache = BoundedTTLCache(maxsize=6000, ttl=86400.0, name="jina")
 askfinora_context_cache = BoundedTTLCache(maxsize=4000, ttl=900.0, name="askfinora_context")
 chat_answer_cache = BoundedTTLCache(maxsize=6000, ttl=900.0, name="chat_answers")
+# Finora 2.0: FMP, Stooq, FRED, forensic caches
+fmp_cache = BoundedTTLCache(maxsize=2000, ttl=3600.0, name="fmp")
+stooq_historical_cache = BoundedTTLCache(maxsize=4000, ttl=2592000.0, name="stooq_historical")
+fred_macro_cache = BoundedTTLCache(maxsize=10, ttl=21600.0, name="fred_macro")
+forensic_cache = BoundedTTLCache(maxsize=4000, ttl=86400.0, name="forensic")
 
 
 def clear_all_caches() -> None:
@@ -292,6 +297,7 @@ def clear_all_caches() -> None:
         financials_cache, metrics_cache, bq_cache, twelve_quote_cache,
         twelve_historical_cache, tavily_cache, jina_cache,
         askfinora_context_cache, chat_answer_cache,
+        fmp_cache, stooq_historical_cache, fred_macro_cache, forensic_cache,
     ):
         c.clear()
 
@@ -304,4 +310,5 @@ def cache_stats() -> dict:
         financials_cache, metrics_cache, bq_cache, twelve_quote_cache,
         twelve_historical_cache, tavily_cache, jina_cache,
         askfinora_context_cache, chat_answer_cache,
+        fmp_cache, stooq_historical_cache, fred_macro_cache, forensic_cache,
     )}

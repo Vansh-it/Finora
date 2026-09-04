@@ -141,6 +141,7 @@ def _ensure_loaded() -> None:
                 "company_meta", "document_registry", "financial_statements",
                 "calculated_metrics", "source_registry", "verification_results",
                 "executive_summary", "market_data", "valuation_metrics", "error",
+                "forensic_scores", "red_flags", "macro_context",
             ):
                 disk_val = sdata.get(field)
                 if disk_val is not None:
@@ -165,6 +166,9 @@ def _ensure_loaded() -> None:
                 executive_summary=sdata.get("executive_summary"),
                 market_data=sdata.get("market_data"),
                 valuation_metrics=sdata.get("valuation_metrics"),
+                forensic_scores=sdata.get("forensic_scores"),
+                red_flags=sdata.get("red_flags"),
+                macro_context=sdata.get("macro_context"),
                 error=sdata.get("error"),
             )
 
@@ -222,6 +226,15 @@ class ResearchSession:
     # Valuation metrics (populated after valuation calculation)
     valuation_metrics: Optional[dict] = None
 
+    # Finora 2.0: Forensic scores (Piotroski, Altman, Beneish)
+    forensic_scores: Optional[dict] = None
+
+    # Finora 2.0: Red flags detected
+    red_flags: Optional[list] = None
+
+    # Finora 2.0: Macro context (FRED)
+    macro_context: Optional[dict] = None
+
     # Error info
     error: Optional[str] = None
 
@@ -255,6 +268,12 @@ class ResearchSession:
             result["market_data"] = self.market_data
         if self.valuation_metrics:
             result["valuation_metrics"] = self.valuation_metrics
+        if self.forensic_scores:
+            result["forensic_scores"] = self.forensic_scores
+        if self.red_flags:
+            result["red_flags"] = self.red_flags
+        if self.macro_context:
+            result["macro_context"] = self.macro_context
         if self.error:
             result["error"] = self.error
         return result

@@ -127,6 +127,9 @@ def _build_analysis_context(session_data: dict) -> dict:
             "mismatches": mismatches,
             "source_count": source_count,
         },
+        "forensic_scores": session_data.get("forensic_scores", {}),
+        "red_flags": session_data.get("red_flags", []),
+        "macro_context": session_data.get("macro_context", {}),
     }
 
 

@@ -513,6 +513,96 @@ def build_dashboard_payload(session_data: dict) -> dict:
                 "reason": m.get("reason", ""),
             })
 
+    # ── Forensic scores ────────────────────────────────────────────────
+    forensic = session_data.get("forensic_scores") or {}
+
+    # Normalize Piotroski for frontend
+    p_raw = forensic.get("piotroski") or {}
+    piotroski_section = None
+    if p_raw:
+        signals = []
+        # Piotroski uses 'signals' list with 'result' (0/1) field
+        for sig in p_raw.get("signals", []):
+            signals.append({
+                "label": sig.get("name", ""),
+                "value": sig.get("result", sig.get("value", 0)),
+                "max": 1,
+            })
+        piotroski_section = {
+            "score": p_raw.get("score", 0),
+            "status": p_raw.get("status", ""),
+            "signals": signals,
+            "interpretation": p_raw.get("interpretation", ""),
+        }
+
+    # Normalize Altman for frontend
+    a_raw = forensic.get("altman") or {}
+    altman_section = None
+    if a_raw:
+        factors = []
+        for comp in a_raw.get("components", []):
+            factors.append({
+                "name": comp.get("name", ""),
+                "value": comp.get("value", 0) or 0,
+            })
+        applicability = a_raw.get("applicability", "applicable")
+        altman_section = {
+            "score": a_raw.get("score"),
+            "status": a_raw.get("status", ""),
+            "zone": a_raw.get("status", ""),
+            "applicable": applicability != "not_applicable",
+            "reason": a_raw.get("reason", ""),
+            "factors": factors,
+            "variant": "Original (1968)",
+        }
+
+    # Normalize Beneish for frontend
+    b_raw = forensic.get("beneish") or {}
+    beneish_section = None
+    if b_raw:
+        indices = []
+        for comp in b_raw.get("components", []):
+            indices.append({
+                "name": comp.get("name", ""),
+                "value": comp.get("value", 0) or 0,
+            })
+        beneish_section = {
+            "score": b_raw.get("score"),
+            "status": b_raw.get("status", ""),
+            "applicable": b_raw.get("applicability", "applicable") != "unavailable",
+            "reason": b_raw.get("reason", ""),
+            "indices": indices,
+        }
+
+    forensic_section = {
+        "piotroski": piotroski_section,
+        "altman": altman_section,
+        "beneish": beneish_section,
+    }
+
+    # ── Red flags / watch items ────────────────────────────────────────
+    red_flags = session_data.get("red_flags") or []
+    watch_items = []
+    for rf in red_flags:
+        if isinstance(rf, dict):
+            watch_items.append({
+                "id": rf.get("id", ""),
+                "title": rf.get("category", "WATCH"),
+                "headline": rf.get("headline", ""),
+                "reason": rf.get("description", ""),
+                "severity": rf.get("severity", "medium"),
+                "tag": rf.get("category", "WATCH"),
+                "evidence": rf.get("evidence", {}),
+            })
+
+    # ── Macro context ──────────────────────────────────────────────────
+    macro = session_data.get("macro_context") or {}
+    macro_section = {
+        "available": macro.get("available", False),
+        "strip": macro.get("strip", []),
+        "attribution": macro.get("attribution", ""),
+    }
+
     return {
         "company": company_header,
         "periods": periods,
@@ -538,4 +628,7 @@ def build_dashboard_payload(session_data: dict) -> dict:
         "data_quality": data_quality,
         "executive_summary": session_data.get("executive_summary"),
         "valuation": valuation_section,
+        "forensic_scores": forensic_section,
+        "watch_items": watch_items,
+        "macro_context": macro_section,
     }

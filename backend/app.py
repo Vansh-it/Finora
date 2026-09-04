@@ -44,7 +44,7 @@ from lib.research_session import (  # noqa: E402
     set_session_calculated_metrics, set_session_source_registry,
     set_session_verification_results, set_session_executive_summary,
     set_session_market_data, set_session_valuation_metrics,
-    set_session_error,
+    set_session_error, _persist as _session_persist,
 )
 from lib.company_resolver import resolve_company  # noqa: E402
 from lib.filing_retriever import retrieve_filings  # noqa: E402
@@ -68,6 +68,13 @@ from lib.business_quant_client import is_available as bq_available  # noqa: E402
 from lib.response_sanitizer import sanitize_response  # noqa: E402
 from lib.ssrf_guard import safe_url_or_none  # noqa: E402
 from lib.company_resolver import get_universe, smart_resolve, suggest_companies, parse_research_query, AmbiguousCompanyError  # noqa: E402
+# Finora 2.0 imports
+from lib.fmp_client import is_available as fmp_available, get_company_profile as fmp_profile, get_ebitda as fmp_ebitda  # noqa: E402
+from lib.stooq_client import fetch_historical_price as stooq_fetch_price  # noqa: E402
+from lib.forensic_engine import calculate_piotroski, calculate_altman_z, calculate_beneish  # noqa: E402
+from lib.red_flag_detector import detect_red_flags  # noqa: E402
+from lib.fred_client import get_macro_for_dashboard  # noqa: E402
+from lib.conflict_resolver import resolve_metric  # noqa: E402
 
 app = Flask(__name__)
 
@@ -128,6 +135,135 @@ def _check_session_ownership(session, user):
     if session.user_id and session.user_id != user.user_id:
         return jsonify({"error": "Access denied"}), 403
     return None
+
+
+# ── Auth routes ────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/signup")
+def api_auth_signup():
+    """Create a new user account."""
+    body = request.get_json(silent=True) or {}
+    email = body.get("email", "")
+    password = body.get("password", "")
+    name = body.get("name", "")
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+    try:
+        result = sign_up(email, password, name)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"Signup failed: {e}")
+        return jsonify({"error": "Signup failed"}), 500
+
+
+@app.post("/api/auth/signin")
+def api_auth_signin():
+    """Authenticate an existing user."""
+    body = request.get_json(silent=True) or {}
+    email = body.get("email", "")
+    password = body.get("password", "")
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+    try:
+        result = sign_in(email, password)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+    except Exception as e:
+        logger.error(f"Signin failed: {e}")
+        return jsonify({"error": "Signin failed"}), 500
+
+
+@app.post("/api/auth/signout")
+def api_auth_signout():
+    """Invalidate the current session."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if token:
+        sign_out(token)
+    return jsonify({"status": "ok"})
+
+
+@app.get("/api/auth/me")
+def api_auth_me():
+    """Return the current authenticated user."""
+    user, err = _get_auth_user()
+    if err:
+        return err
+    return jsonify({"user": user.to_public_dict()})
+
+
+@app.get("/api/auth/profile")
+def api_auth_profile():
+    """Return full profile with usage stats."""
+    user, err = _get_auth_user()
+    if err:
+        return err
+    usage = can_use_research(user.user_id)
+    return jsonify({
+        "user": {
+            **user.to_public_dict(),
+            "research_runs_used": user.research_runs_used,
+            "research_runs_limit": user.research_runs_limit,
+        },
+        "completed_researches": user.research_runs_used,
+        "usage": {
+            "used": user.research_runs_used,
+            "limit": user.research_runs_limit,
+            "remaining": usage["remaining"],
+        },
+    })
+
+
+@app.post("/api/auth/update-profile")
+def api_auth_update_profile():
+    """Update user profile fields."""
+    user, err = _get_auth_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    from lib.auth_service import _persist_user
+    if "name" in body:
+        user.name = body["name"]
+    _persist_user(user)
+    return jsonify({"user": user.to_public_dict()})
+
+
+# ── Research history ───────────────────────────────────────────────────────
+
+@app.get("/api/research/history")
+def api_research_history():
+    """Return the authenticated user's research history."""
+    user, err = _get_auth_user()
+    if err:
+        return err
+    from lib.research_session import get_user_sessions
+    sessions = get_user_sessions(user.user_id)
+    researches = []
+    for s in sessions:
+        meta = s.get("company_meta", {})
+        exec_sum = s.get("executive_summary", {})
+        researches.append({
+            "session_id": s.get("session_id", ""),
+            "company": meta.get("name", s.get("company", "")),
+            "ticker": meta.get("ticker", ""),
+            "period": s.get("period_mode", "latest"),
+            "created_at": s.get("created_at", ""),
+            "headline": exec_sum.get("executive_overview", "")[:120] if isinstance(exec_sum, dict) else "",
+            "metric_count": len(s.get("calculated_metrics", {}).get("annual_metrics", {}).get(s.get("calculated_metrics", {}).get("periods", [""])[-1], {})) if isinstance(s.get("calculated_metrics"), dict) else 0,
+            "source_count": len(s.get("source_registry", {}).get("sources", [])) if isinstance(s.get("source_registry"), dict) else 0,
+            "status": s.get("status", "complete"),
+        })
+    usage = can_use_research(user.user_id)
+    return jsonify({
+        "researches": sorted(researches, key=lambda r: r.get("created_at", ""), reverse=True),
+        "usage": {
+            "used": usage["used"],
+            "limit": usage["limit"],
+            "remaining": usage["remaining"],
+        },
+    })
 
 
 # ── Serve the API test page ──────────────────────────────────────────────────
@@ -476,8 +612,48 @@ def api_calculate_metrics():
     update_session_status(session_id, "validating_metrics")
     set_session_calculated_metrics(session_id, metrics)
     update_session_status(session_id, "metrics_calculated")
-    update_session_status(session_id, "ready_for_analysis")
     logger.info(f"METRICS_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s")
+
+    # ── Finora 2.0: Forensic scoring ─────────────────────────────────
+    periods_list = metrics.get("periods", [])
+    latest_period = periods_list[-1] if periods_list else ""
+    forensic_scores = {}
+    if latest_period and session.financial_statements:
+        try:
+            forensic_scores["piotroski"] = calculate_piotroski(session.financial_statements, latest_period)
+        except Exception as exc:
+            logger.warning(f"Piotroski calculation failed: {exc}")
+            forensic_scores["piotroski"] = None
+
+        try:
+            ticker = (session.company_meta or {}).get("ticker", "")
+            sector = (session.company_meta or {}).get("sector", "")
+            forensic_scores["altman"] = calculate_altman_z(session.financial_statements, latest_period, ticker=ticker, sector=sector)
+        except Exception as exc:
+            logger.warning(f"Altman Z calculation failed: {exc}")
+            forensic_scores["altman"] = None
+
+        try:
+            forensic_scores["beneish"] = calculate_beneish(session.financial_statements, latest_period)
+        except Exception as exc:
+            logger.warning(f"Beneish M calculation failed: {exc}")
+            forensic_scores["beneish"] = None
+
+    # ── Finora 2.0: Red flag detection ───────────────────────────────
+    red_flags = []
+    if latest_period and session.financial_statements:
+        try:
+            red_flags = detect_red_flags(session.financial_statements, latest_period, forensic_scores)
+        except Exception as exc:
+            logger.warning(f"Red flag detection failed: {exc}")
+            red_flags = []
+
+    # Store forensic scores and red flags in session
+    session.forensic_scores = forensic_scores
+    session.red_flags = red_flags
+    _session_persist()
+
+    update_session_status(session_id, "ready_for_analysis")
 
     return jsonify({
         "status": "ready_for_analysis",
@@ -487,6 +663,12 @@ def api_calculate_metrics():
         "growth_metrics": metrics["growth_metrics"],
         "cagr_metrics": metrics["cagr_metrics"],
         "metadata": metrics["metadata"],
+        "forensic_scores": {
+            "piotroski": {"score": forensic_scores.get("piotroski", {}).get("score") if forensic_scores.get("piotroski") else None, "status": forensic_scores.get("piotroski", {}).get("status") if forensic_scores.get("piotroski") else None},
+            "altman": {"score": forensic_scores.get("altman", {}).get("score") if forensic_scores.get("altman") else None, "status": forensic_scores.get("altman", {}).get("status") if forensic_scores.get("altman") else None},
+            "beneish": {"score": forensic_scores.get("beneish", {}).get("score") if forensic_scores.get("beneish") else None, "status": forensic_scores.get("beneish", {}).get("status") if forensic_scores.get("beneish") else None},
+        },
+        "red_flags_count": len(red_flags),
     })
 
 
@@ -867,8 +1049,23 @@ def api_calculate_valuation():
                 )
                 market_data["target_date"] = target_date
             else:
-                market_data["error"] = "Historical price unavailable for requested period"
-                market_data["fallback"] = True
+                # Finora 2.0: Stooq fallback when Twelve Data fails
+                logger.info(f"STOOQ_FALLBACK session_id={session_id[:12]}... ticker={ticker} target={target_date}")
+                stooq_hist = stooq_fetch_price(ticker, target_date)
+                if stooq_hist and stooq_hist.get("close"):
+                    market_data["price"] = stooq_hist["close"]
+                    market_data["price_date"] = stooq_hist.get("date", "")
+                    market_data["source"] = "Stooq"
+                    market_data["fallback_type"] = "historical_fallback"
+                    market_data["alignment_status"] = (
+                        "exact_period_end" if stooq_hist.get("date") == target_date
+                        else "previous_trading_day"
+                    )
+                    market_data["target_date"] = target_date
+                    logger.info(f"STOOQ_SUCCESS session_id={session_id[:12]}... price={stooq_hist['close']} date={stooq_hist.get('date')}")
+                else:
+                    market_data["error"] = "Historical price unavailable for requested period"
+                    market_data["fallback"] = True
         else:
             # Latest: use current quote
             market_data = get_market_snapshot(ticker)
@@ -899,10 +1096,43 @@ def api_calculate_valuation():
 
     set_session_market_data(session_id, market_data)
 
-    # Step 2: Calculate valuation
+    # Step 2: FMP enrichment (non-blocking, fills gaps)
+    try:
+        if fmp_available() and not market_data.get("market_cap"):
+            fmp_mc = None
+            fmp_shares = None
+            try:
+                fmp_prof = fmp_profile(ticker)
+                if fmp_prof:
+                    fmp_mc = fmp_prof.get("mktCap")
+                    fmp_shares = fmp_prof.get("sharesOutstanding")
+            except Exception:
+                pass
+            if fmp_mc and not market_data.get("market_cap"):
+                try:
+                    market_data["market_cap"] = float(fmp_mc)
+                except (TypeError, ValueError):
+                    pass
+            if fmp_shares and not market_data.get("shares_outstanding"):
+                try:
+                    market_data["shares_outstanding"] = float(fmp_shares)
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass  # FMP enrichment is best-effort
+
+    # Step 3: FRED macro context (non-blocking)
+    try:
+        macro_ctx = get_macro_for_dashboard()
+        session.macro_context = macro_ctx
+    except Exception:
+        macro_ctx = {}
+
+    # Step 4: Calculate valuation
     update_session_status(session_id, "calculating_valuation")
     session_data = session.to_dict()
     session_data["market_data"] = market_data
+    session_data["macro_context"] = macro_ctx
 
     try:
         result = calculate_valuation(session_data)
@@ -1240,6 +1470,33 @@ def api_dashboard_chat():
                     for h in summary["highlights"][:3]:
                         ctx_parts.append(f"Highlight: {h.get('title', '')} — {h.get('text', '')[:200]}")
 
+                # Forensic scores
+                forensic = session.forensic_scores or {}
+                piotroski = forensic.get("piotroski")
+                if piotroski and isinstance(piotroski, dict) and piotroski.get("score") is not None:
+                    ctx_parts.append(f"\nPiotroski F-Score: {piotroski['score']}/9 ({piotroski.get('status', '')})")
+                altman = forensic.get("altman")
+                if altman and isinstance(altman, dict) and altman.get("score") is not None:
+                    ctx_parts.append(f"Altman Z-Score: {altman['score']:.2f} ({altman.get('status', '')})")
+                beneish = forensic.get("beneish")
+                if beneish and isinstance(beneish, dict) and beneish.get("score") is not None:
+                    ctx_parts.append(f"Beneish M-Score: {beneish['score']:.2f} ({beneish.get('status', '')})")
+
+                # Red flags
+                red_flags = session.red_flags or []
+                if red_flags:
+                    ctx_parts.append(f"\nRed Flags ({len(red_flags)} items):")
+                    for rf in red_flags[:5]:
+                        if isinstance(rf, dict):
+                            ctx_parts.append(f"  - [{rf.get('severity', 'medium').upper()}] {rf.get('headline', '')}")
+
+                # Macro context
+                macro = session.macro_context or {}
+                if macro.get("available") and macro.get("strip"):
+                    ctx_parts.append("\nMacro Context:")
+                    for item in macro["strip"]:
+                        ctx_parts.append(f"  {item.get('label', '')}: {item.get('value', '')}")
+
                 # Data quality
                 ver_summary = verification.get("summary", {})
                 cross = ver_summary.get("exact_matches", 0) + ver_summary.get("within_tolerance", 0)
@@ -1502,6 +1759,50 @@ def api_run_research():
             set_session_executive_summary(session_id, summary)
             update_session_status(session_id, "analysis_complete")
             stages_done.append("analysis_complete")
+
+            # ── Finora 2.0: Forensic scoring ─────────────────────────────
+            _periods_fs = statements.to_dict().get("periods", [])
+            _latest_fs = _periods_fs[-1] if _periods_fs else ""
+            forensic_scores = {}
+            if _latest_fs and session.financial_statements:
+                try:
+                    forensic_scores["piotroski"] = calculate_piotroski(session.financial_statements, _latest_fs)
+                except Exception as exc:
+                    logger.warning(f"Piotroski failed in pipeline: {exc}")
+                    forensic_scores["piotroski"] = None
+                try:
+                    forensic_scores["altman"] = calculate_altman_z(
+                        session.financial_statements, _latest_fs,
+                        ticker=company_meta.ticker, sector=getattr(company_meta, 'sector', '')
+                    )
+                except Exception as exc:
+                    logger.warning(f"Altman failed in pipeline: {exc}")
+                    forensic_scores["altman"] = None
+                try:
+                    forensic_scores["beneish"] = calculate_beneish(session.financial_statements, _latest_fs)
+                except Exception as exc:
+                    logger.warning(f"Beneish failed in pipeline: {exc}")
+                    forensic_scores["beneish"] = None
+            session.forensic_scores = forensic_scores
+
+            # ── Finora 2.0: Red flags ────────────────────────────────────
+            red_flags = []
+            if _latest_fs and session.financial_statements:
+                try:
+                    red_flags = detect_red_flags(session.financial_statements, _latest_fs, forensic_scores)
+                except Exception as exc:
+                    logger.warning(f"Red flags failed in pipeline: {exc}")
+                    red_flags = []
+            session.red_flags = red_flags
+
+            # ── Finora 2.0: Macro context (FRED) ────────────────────────
+            macro_context = {"available": False, "strip": [], "attribution": ""}
+            try:
+                macro_context = get_macro_for_dashboard()
+            except Exception as exc:
+                logger.warning(f"FRED macro failed in pipeline: {exc}")
+            session.macro_context = macro_context
+            _session_persist()
 
             # Step 8: Market data + valuation (with fallback)
             update_session_status(session_id, "fetching_market_data")

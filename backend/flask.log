@@ -1,0 +1,23 @@
+Starting Finora backend on port 8000...
+ * Serving Flask app 'app'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8000
+ * Running on http://10.12.67.182:8000
+Press CTRL+C to quit
+127.0.0.1 - - [04/Sep/2026 12:11:35] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:09] "GET /api/auth/profile HTTP/1.1" 401 -
+127.0.0.1 - - [04/Sep/2026 12:22:09] "GET /api/auth/profile HTTP/1.1" 401 -
+127.0.0.1 - - [04/Sep/2026 12:22:35] "POST /api/auth/signup HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:35] "GET /api/auth/profile HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:35] "GET /api/auth/profile HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:35] "GET /api/research/history HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:35] "GET /api/research/history HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:44] "GET /api/company/suggest?q=rsearch&limit=8 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:44] "GET /api/company/suggest?q=rsearch%20&limit=8 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:45] "GET /api/company/suggest?q=rsearch&limit=8 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:47] "GET /api/company/suggest?q=nt&limit=8 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 12:22:47] "GET /api/company/suggest?q=ntfli&limit=8 HTTP/1.1" 200 -
+12:22:52 WARNING [finora.pipeline] BQ resolution failed (non-fatal): name '_get_api_key' is not defined
+127.0.0.1 - - [04/Sep/2026 12:22:54] "POST /api/research/run HTTP/1.1" 200 -

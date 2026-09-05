@@ -242,18 +242,19 @@ def api_research_history():
     sessions = get_user_sessions(user.user_id)
     researches = []
     for s in sessions:
-        meta = s.get("company_meta", {})
-        exec_sum = s.get("executive_summary", {})
+        sd = s.to_dict() if hasattr(s, "to_dict") else s
+        meta = sd.get("company_meta", {})
+        exec_sum = sd.get("executive_summary", {})
         researches.append({
-            "session_id": s.get("session_id", ""),
-            "company": meta.get("name", s.get("company", "")),
+            "session_id": sd.get("session_id", ""),
+            "company": meta.get("name", sd.get("company", "")),
             "ticker": meta.get("ticker", ""),
-            "period": s.get("period_mode", "latest"),
-            "created_at": s.get("created_at", ""),
+            "period": sd.get("period_mode", "latest"),
+            "created_at": sd.get("created_at", ""),
             "headline": exec_sum.get("executive_overview", "")[:120] if isinstance(exec_sum, dict) else "",
-            "metric_count": len(s.get("calculated_metrics", {}).get("annual_metrics", {}).get(s.get("calculated_metrics", {}).get("periods", [""])[-1], {})) if isinstance(s.get("calculated_metrics"), dict) else 0,
-            "source_count": len(s.get("source_registry", {}).get("sources", [])) if isinstance(s.get("source_registry"), dict) else 0,
-            "status": s.get("status", "complete"),
+            "metric_count": len(sd.get("calculated_metrics", {}).get("annual_metrics", {}).get(sd.get("calculated_metrics", {}).get("periods", [""])[-1], {})) if isinstance(sd.get("calculated_metrics"), dict) else 0,
+            "source_count": len(sd.get("source_registry", {}).get("sources", [])) if isinstance(sd.get("source_registry"), dict) else 0,
+            "status": sd.get("status", "complete"),
         })
     usage = can_use_research(user.user_id)
     return jsonify({
@@ -446,6 +447,16 @@ def api_fetch_filings():
     update_session_status(session_id, "resolving_company")
     try:
         company = resolve_company(session.company)
+        # Enrich with FMP profile — best-effort
+        try:
+            if fmp_available():
+                fmp_prof = fmp_profile(company.ticker)
+                if fmp_prof:
+                    company.description = fmp_prof.get("description", "") or ""
+                    company.industry = fmp_prof.get("industry", "") or ""
+                    company.sector = fmp_prof.get("sector", "") or ""
+        except Exception as _fmp_exc:
+            logger.warning(f"FMP profile enrichment failed (non-fatal): {_fmp_exc}")
         set_session_company_meta(session_id, company.to_dict())
         update_session_status(session_id, "company_resolved")
         logger.info(f"RESOLVE_COMPANY_END session_id={session_id[:12]}... elapsed={__import__('time').time()-t0:.1f}s cik={company.cik}")
@@ -1621,6 +1632,16 @@ def api_run_research():
     if auth_err:
         return auth_err
 
+    # Strict limit: 5 total researches per user, period.
+    quota = can_use_research(user.user_id)
+    if not quota["allowed"]:
+        return jsonify({
+            "error": "You have used all 5 researches available in this Finora preview.",
+            "quota_exhausted": True,
+            "remaining": 0,
+            "limit": quota["limit"],
+        }), 429
+
     # Create session
     try:
         session_data = {"company": company, "period_mode": period_mode}
@@ -1641,6 +1662,16 @@ def api_run_research():
             # Step 1: Resolve company
             update_session_status(session_id, "resolving_company")
             company_meta = resolve_company(session.company)
+            # Enrich with FMP profile (description, industry, sector) — best-effort
+            try:
+                if fmp_available():
+                    fmp_prof = fmp_profile(company_meta.ticker)
+                    if fmp_prof:
+                        company_meta.description = fmp_prof.get("description", "") or ""
+                        company_meta.industry = fmp_prof.get("industry", "") or ""
+                        company_meta.sector = fmp_prof.get("sector", "") or ""
+            except Exception as _fmp_exc:
+                logger.warning(f"FMP profile enrichment failed (non-fatal): {_fmp_exc}")
             set_session_company_meta(session_id, company_meta.to_dict())
             update_session_status(session_id, "company_resolved")
             stages_done.append("company_resolved")

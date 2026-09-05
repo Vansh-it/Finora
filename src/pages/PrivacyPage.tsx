@@ -28,11 +28,6 @@ const ARTICLES = [
     title: "Data Retention",
     body: ["Research files and chat history are retained for as long as your account remains active, or as required by law."],
   },
-  {
-    id: "contact",
-    title: "Contact",
-    body: ["Questions about this policy can be directed to privacy@finora.example."],
-  },
 ];
 
 export default function PrivacyPage() {

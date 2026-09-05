@@ -5,7 +5,6 @@ import EditorialHeading from "../components/EditorialHeading";
 import HighlightText from "../components/HighlightText";
 import PaperTexture from "../components/PaperTexture";
 import { getToken } from "../lib/auth";
-import { useWatchlist } from "../hooks/useWatchlist";
 
 interface ResearchEntry {
   session_id: string;
@@ -27,7 +26,6 @@ interface UsageInfo {
 
 export default function HistoryPage() {
   const navigate = useNavigate();
-  const { entries: watchlist, remove: removeWatchlist } = useWatchlist();
   const [researches, setResearches] = useState<ResearchEntry[]>([]);
   const [usage, setUsage] = useState<UsageInfo>({ used: 0, limit: 5, remaining: 5 });
   const [loading, setLoading] = useState(true);
@@ -166,83 +164,6 @@ export default function HistoryPage() {
         )}
       </section>
 
-      {/* Watchlist Section */}
-      <section className="border-t border-ink/15">
-        <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6 lg:px-0">
-          <p className="mb-2 font-mono text-xs font-semibold tracking-[0.3em] text-ink-3 uppercase">
-            Watchlist
-          </p>
-          <EditorialHeading size="sm">
-            <HighlightText>Companies</HighlightText> you are watching.
-          </EditorialHeading>
-
-          {watchlist.length === 0 ? (
-            <div className="mt-10 py-12 text-center border border-dashed border-ink/20">
-              <p className="font-mono text-sm text-ink-3">
-                No companies on your watchlist.
-              </p>
-              <p className="mt-2 font-mono text-xs text-ink-3">
-                Add companies from a research dashboard to keep them here.
-              </p>
-              <Link
-                to="/research"
-                className="mt-6 inline-flex items-center gap-2 border-2 border-ink bg-paper px-6 py-3 font-mono text-xs font-bold tracking-wider uppercase transition-colors hover:bg-ink hover:text-paper"
-              >
-                Start Research <ArrowRight size={14} />
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-8 space-y-4">
-              {watchlist.map((entry) => (
-                <div
-                  key={entry.ticker}
-                  className="group flex items-center justify-between border border-ink/20 bg-paper p-5 transition-colors hover:border-ink"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 items-center justify-center border border-ink/20 bg-paper-2/50 font-mono text-xs font-bold text-ink">
-                      {entry.ticker.slice(0, 4)}
-                    </div>
-                    <div>
-                      <h3 className="font-serif text-base font-semibold text-ink uppercase">
-                        {entry.name}
-                      </h3>
-                      <div className="flex items-center gap-3 font-mono text-[10px] text-ink-3">
-                        <span>{entry.ticker}</span>
-                        <span>·</span>
-                        <span>Added {formatDate(entry.addedAt)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {entry.sessionId ? (
-                      <button
-                        onClick={() => navigate(`/dashboard?session_id=${entry.sessionId}`)}
-                        className="inline-flex items-center gap-1.5 border border-ink px-4 py-2 font-mono text-[10px] font-bold tracking-widest text-ink uppercase transition-colors hover:bg-ink hover:text-paper"
-                      >
-                        Open Research <ArrowRight size={12} />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => navigate("/research")}
-                        className="inline-flex items-center gap-1.5 border border-ink/30 px-4 py-2 font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase transition-colors hover:border-ink hover:text-ink"
-                      >
-                        Research <ArrowRight size={12} />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => removeWatchlist(entry.ticker)}
-                      className="font-mono text-[10px] text-ink-3 underline hover:text-annotate-red"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
     </div>
   );
 }

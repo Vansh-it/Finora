@@ -164,6 +164,12 @@ class Company:
 
     status: str = "resolved"
 
+    description: str = ""
+
+    industry: str = ""
+
+    sector: str = ""
+
     # Resolution provenance
 
     confidence: float = 1.0
@@ -185,6 +191,12 @@ class Company:
             "exchange": self.exchange,
 
             "status": self.status,
+
+            "description": self.description,
+
+            "industry": self.industry,
+
+            "sector": self.sector,
 
             "confidence": self.confidence,
 

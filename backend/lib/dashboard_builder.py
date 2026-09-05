@@ -182,6 +182,9 @@ def build_dashboard_payload(session_data: dict) -> dict:
         "period_mode": period_mode,
         "currency": "USD",
         "cik": cik,
+        "description": company_meta.get("description", ""),
+        "industry": company_meta.get("industry", ""),
+        "sector": company_meta.get("sector", ""),
         "logoInitials": "".join(w[0] for w in company_name.split()[:2]).upper() if company_name else "?",
     }
 
@@ -603,6 +606,52 @@ def build_dashboard_payload(session_data: dict) -> dict:
         "attribution": macro.get("attribution", ""),
     }
 
+    # ── Raw export tables (100% free client-side Excel export) ──────────
+    # Formatted rows above are display strings ("$12.3B"). Excel needs real
+    # numbers so users can SUM/AVERAGE/chart. Expose raw numerics here
+    # without changing any existing UI fields.
+    def _raw_rows(metrics: list[tuple[str, str]], stmt_key: str):
+        out = []
+        for mid, label in metrics:
+            out.append({
+                "label": label,
+                "values": [_raw(financial_stmts, stmt_key, mid, p) for p in periods],
+            })
+        return out
+
+    def _raw_ratio(ids: list[str]):
+        return {mid: _get_metric_value(annual, mid, latest) for mid in ids}
+
+    raw_export = {
+        "periods": periods,
+        "kpis": [
+            {"id": "revenue", "label": "Revenue (USD)", "value": _raw(financial_stmts, "income_statement", "revenue", latest), "kind": "currency"},
+            {"id": "net-income", "label": "Net Income (USD)", "value": _raw(financial_stmts, "income_statement", "net_income", latest), "kind": "currency"},
+            {"id": "op-income", "label": "Operating Income (USD)", "value": _raw(financial_stmts, "income_statement", "operating_income", latest), "kind": "currency"},
+            {"id": "eps", "label": "EPS Diluted (USD)", "value": _raw(financial_stmts, "income_statement", "diluted_eps", latest), "kind": "eps"},
+            {"id": "fcf", "label": "Free Cash Flow (USD)", "value": _get_metric_value(annual, "free_cash_flow", latest), "kind": "currency"},
+            {"id": "gross-margin", "label": "Gross Margin (%)", "value": _get_metric_value(annual, "gross_margin", latest), "kind": "pct"},
+        ],
+        "income": _raw_rows(income_metrics, "income_statement"),
+        "balance": _raw_rows(bs_metrics, "balance_sheet"),
+        "cashflow": _raw_rows(cf_metrics, "cash_flow"),
+        "growth_ids": [mid for mid, _lbl in growth_list],
+        "growth_raw": {
+            p_label: {mid: (growth_metrics.get(p_label, {}).get(mid, {}) or {}).get("value") for mid, _lbl in growth_list}
+            for p_label in growth_metrics
+        },
+        "growth_labels": periods,
+        "profitability_raw": _raw_ratio(["gross_margin", "operating_margin", "pretax_margin", "net_margin",
+            "ebitda_margin", "fcf_margin", "ocf_margin", "roa", "roe", "roic", "roce"]),
+        "liquidity_raw": _raw_ratio(["current_ratio", "quick_ratio", "cash_ratio", "net_working_capital", "nwc_to_revenue"]),
+        "leverage_raw": _raw_ratio(["debt_to_equity", "debt_to_assets", "debt_to_capital",
+            "net_debt", "debt_to_ebitda", "net_debt_to_ebitda", "cash_flow_to_debt", "interest_coverage"]),
+        "efficiency_raw": _raw_ratio(["asset_turnover", "receivables_turnover", "days_sales_outstanding",
+            "inventory_turnover", "days_inventory_outstanding", "days_payable_outstanding",
+            "cash_conversion_cycle"]),
+        "capital_raw": _raw_ratio(["capex_intensity", "buyback_to_fcf", "cash_conversion", "ocf_to_net_income"]),
+    }
+
     return {
         "company": company_header,
         "periods": periods,
@@ -617,6 +666,7 @@ def build_dashboard_payload(session_data: dict) -> dict:
         "efficiency": efficiency,
         "capital_allocation": capital_alloc,
         "dupont": dupont_data,
+        "raw_export": raw_export,
         "charts": {
             "revenue": revenue_chart,
             "operating_income": op_income_chart,

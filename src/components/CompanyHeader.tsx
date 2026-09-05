@@ -11,10 +11,34 @@ interface CompanyHeaderProps {
   price: number;
   priceChange: number;
   sessionId?: string;
+  description?: string;
+  industry?: string;
+}
+
+/** Build a clean 2-line summary from industry + description */
+function buildSummary(industry?: string, description?: string): string {
+  if (!industry && !description) return "";
+
+  // Take the first sentence of the description
+  let sentence = "";
+  if (description) {
+    // Find the first full sentence (ends with .)
+    const firstPeriod = description.indexOf(".");
+    sentence = firstPeriod > 0 ? description.slice(0, firstPeriod + 1) : description.slice(0, 120);
+  }
+
+  if (industry && sentence) {
+    return `${industry} — ${sentence}`;
+  }
+  if (industry) return `${industry}.`;
+  return sentence;
 }
 
 export default function CompanyHeader({ company }: { company: CompanyHeaderProps }) {
   const positive = company.priceChange >= 0;
+
+  const summary = buildSummary(company.industry, company.description);
+
   return (
     <div className="border-b border-ink/15 pb-6">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_auto_auto_auto] lg:items-start">
@@ -34,6 +58,13 @@ export default function CompanyHeader({ company }: { company: CompanyHeaderProps
               {company.fiscalYear} Research
             </span>
           </div>
+
+          {/* Company context — 2 lines max */}
+          {summary && (
+            <p className="mt-3 max-w-xl font-sans text-sm leading-relaxed text-ink-2 line-clamp-2">
+              {summary}
+            </p>
+          )}
         </div>
 
         {/* Center — Share Price */}

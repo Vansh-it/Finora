@@ -56,8 +56,8 @@ async function apiFetch<T>(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
 
-      // Don't retry on 4xx client errors (except 429 rate limit)
-      if (lastError.message.includes("(4") && !lastError.message.includes("(429")) {
+      // Don't retry on 4xx client errors (including 429 rate limit)
+      if (lastError.message.includes("(4") || lastError.message.includes("company_limit_reached")) {
         throw lastError;
       }
 

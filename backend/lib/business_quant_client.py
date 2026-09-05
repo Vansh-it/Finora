@@ -44,6 +44,10 @@ MIN_REQUEST_INTERVAL = 0.2  # seconds between requests
 _bq_cache = BoundedTTLCache(maxsize=1000, ttl=3600, name="bq")
 _last_request_time: float = 0.0
 
+def _get_api_key() -> str:
+    """Read Business Quant API key from environment."""
+    return os.getenv("BUSINESS_QUANT_API_KEY", "").strip()
+
 def clear_cache() -> None:
     """Drop all cached bq responses -- useful for tests."""
     _bq_cache.clear()

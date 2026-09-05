@@ -440,6 +440,8 @@ export default function DashboardPage() {
           price: data.valuation.market_data.price || 0,
           priceChange: data.valuation.market_data.percent_change || 0,
           sessionId: sessionId || undefined,
+          description: (data.company as Record<string, unknown>).description as string || undefined,
+          industry: (data.company as Record<string, unknown>).industry as string || undefined,
         }} />
 
       <div className="my-8">

@@ -39,7 +39,6 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState("");
-  const [companyValue, setCompanyValue] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -62,8 +61,6 @@ export default function ProfilePage() {
         if (!profileData) return;
         setProfile(profileData);
         setNameValue(profileData.user?.name || "");
-        setCompanyValue((profileData.user as Record<string, unknown>)?.company as string || "");
-
         // Fetch history separately
         return fetch("/api/research/history", { headers: { Authorization: `Bearer ${token}` } })
           .then((r) => (r.ok ? r.json() : { researches: [] }))
@@ -82,8 +79,7 @@ export default function ProfilePage() {
     try {
       await fetch("/api/auth/update-profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: nameValue, company: companyValue }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },                body: JSON.stringify({ name: nameValue }),
       });
       if (profile) {
         setProfile({
@@ -182,14 +178,7 @@ export default function ProfilePage() {
                   className="w-full border border-ink/25 bg-paper px-4 py-3 font-mono text-sm text-ink focus:border-ink focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="mb-1 block font-mono text-[10px] font-semibold tracking-widest text-ink-3 uppercase">Company / Organization</label>
-                <input
-                  value={companyValue}
-                  onChange={(e) => setCompanyValue(e.target.value)}
-                  className="w-full border border-ink/25 bg-paper px-4 py-3 font-mono text-sm text-ink focus:border-ink focus:outline-none"
-                />
-              </div>
+
               <div className="flex gap-3">
                 <button
                   onClick={handleSave}
@@ -216,10 +205,7 @@ export default function ProfilePage() {
                 <span className="text-ink-3">Email</span>
                 <span className="text-ink">{user.email}</span>
               </div>
-              <div className="flex justify-between py-2">
-                <span className="text-ink-3">Company</span>
-                <span className="text-ink">{(user as Record<string, unknown>).company as string || "—"}</span>
-              </div>
+
             </div>
           )}
         </div>

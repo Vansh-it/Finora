@@ -77,7 +77,6 @@ from lib.fred_client import get_macro_for_dashboard  # noqa: E402
 from lib.conflict_resolver import resolve_metric  # noqa: E402
 
 app = Flask(__name__)
-
 # ── CORS configuration ────────────────────────────────────────────────────────
 # In production, restrict to specific origins. For dev, allow localhost.
 _allowed_origins_str = os.environ.get("CORS_ORIGINS", "")

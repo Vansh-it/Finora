@@ -101,9 +101,9 @@ def _host_is_suspicious(hostname: str) -> bool:
     if host.startswith(("127.", "10.", "192.168.", "172.16.", "172.17.", "172.18.",
                         "172.19.", "172.2", "172.30.", "172.31.", "169.254.", "0.")):
         return True
-    if host.startswith("fc") and host.startswith("fd"):
-        # heuristic — exact checks happen after resolution too
-        pass
+    if host.startswith("fc") or host.startswith("fd"):
+        # ULA IPv6 hostnames (fc00::/7) — reject as private
+        return True
     for suffix in _BLOCKED_HOSTNAME_SUFFIXES:
         if host.endswith(suffix):
             return True

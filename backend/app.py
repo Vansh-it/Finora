@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import time
+import secrets as _secrets
 from pathlib import Path
 
 import logging
@@ -100,9 +101,51 @@ app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1MB
 MAX_MESSAGE_LENGTH = 2000
 MAX_SESSION_ID_LEN = 128
 MAX_PROMPT_LEN = 5000
+MAX_NAME_LENGTH = 100
+MAX_EMAIL_LENGTH = 254
 
 # Valid session ID format (hex string)
 _SESSION_ID_RE = re.compile(r"^[a-f0-9]{32,64}$")
+
+# Email format validation (basic RFC 5322)
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+# ── Simple in-memory rate limiter ────────────────────────────────────────────
+# Lightweight per-IP rate limiter for auth endpoints.
+# Note: In-memory only — does not work across multiple Gunicorn workers.
+_auth_rate_limits: dict[str, list[float]] = {}  # ip → [timestamps]
+_AUTH_RATE_WINDOW = 300  # 5 minutes
+_AUTH_RATE_MAX = 10  # max attempts per window per IP
+
+def _check_auth_rate_limit(ip: str) -> tuple[bool, str]:
+    """Check if IP has exceeded auth rate limit. Returns (allowed, reason)."""
+    now = time.time()
+    if ip not in _auth_rate_limits:
+        _auth_rate_limits[ip] = []
+    # Prune old entries
+    _auth_rate_limits[ip] = [t for t in _auth_rate_limits[ip] if now - t < _AUTH_RATE_WINDOW]
+    if len(_auth_rate_limits[ip]) >= _AUTH_RATE_MAX:
+        return False, "Too many attempts. Please try again later."
+    _auth_rate_limits[ip].append(now)
+    return True, ""
+
+
+# ── Security headers ─────────────────────────────────────────────────────────
+@app.after_request
+def _add_security_headers(response):
+    """Add security headers to all responses."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"  # Modern browsers: let CSP handle it
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # Don't cache sensitive API responses
+    path = request.path if request.path else ""
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 # ── Input validation helpers ──────────────────────────────────────────────────
@@ -147,6 +190,17 @@ def api_auth_signup():
     name = body.get("name", "")
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
+    # Rate limit auth attempts per IP
+    client_ip = request.remote_addr or "unknown"
+    allowed, reason = _check_auth_rate_limit(client_ip)
+    if not allowed:
+        return jsonify({"error": reason}), 429
+    # Validate email format
+    if not isinstance(email, str) or len(email) > MAX_EMAIL_LENGTH or not _EMAIL_RE.match(email.strip()):
+        return jsonify({"error": "Invalid email format"}), 400
+    # Sanitize name
+    if name and isinstance(name, str):
+        name = name.strip()[:MAX_NAME_LENGTH]
     try:
         result = sign_up(email, password, name)
         return jsonify(result)
@@ -165,6 +219,11 @@ def api_auth_signin():
     password = body.get("password", "")
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
+    # Rate limit auth attempts per IP
+    client_ip = request.remote_addr or "unknown"
+    allowed, reason = _check_auth_rate_limit(client_ip)
+    if not allowed:
+        return jsonify({"error": reason}), 429
     try:
         result = sign_in(email, password)
         return jsonify(result)
@@ -224,7 +283,9 @@ def api_auth_update_profile():
     body = request.get_json(silent=True) or {}
     from lib.auth_service import _persist_user
     if "name" in body:
-        user.name = body["name"]
+        new_name = body["name"]
+        if isinstance(new_name, str) and len(new_name) <= MAX_NAME_LENGTH:
+            user.name = new_name.strip()
     _persist_user(user)
     return jsonify({"user": user.to_public_dict()})
 
@@ -1180,6 +1241,10 @@ def api_get_session(session_id: str):
     session = get_session(session_id)
     if session is None:
         return jsonify({"error": "Session not found"}), 404
+    # Ownership check
+    user, auth_err = _get_auth_user()
+    if not auth_err and user and session.user_id and session.user_id != user.user_id:
+        return jsonify({"error": "Access denied"}), 403
     return jsonify(session.to_dict())
 
 
@@ -1194,6 +1259,11 @@ def api_research_result(session_id: str):
     if session is None:
         return jsonify({"error": "Session not found"}), 404
 
+    # Ownership check
+    user, auth_err = _get_auth_user()
+    if not auth_err and user and session.user_id and session.user_id != user.user_id:
+        return jsonify({"error": "Access denied"}), 403
+
     if session.status == "cancelled":
         return jsonify({"error": "Session has been cancelled"}), 409
 
@@ -1207,7 +1277,7 @@ def api_research_result(session_id: str):
         payload = build_dashboard_payload(session.to_dict())
         return jsonify(payload)
     except Exception as exc:
-        return jsonify({"error": f"Failed to build dashboard: {exc}"}), 500
+        return jsonify({"error": "Failed to build dashboard."}), 500
 
 
 # ── Cancel session endpoint ──────────────────────────────────────────────────
@@ -1220,6 +1290,14 @@ def api_cancel_session():
     err = _validate_session_id(session_id)
     if err:
         return jsonify({"error": err}), 400
+
+    # Ownership check
+    session = get_session(session_id)
+    if session is None:
+        return jsonify({"error": "Session not found"}), 404
+    user, auth_err = _get_auth_user()
+    if not auth_err and user and session.user_id and session.user_id != user.user_id:
+        return jsonify({"error": "Access denied"}), 403
 
     cancelled = cancel_session(session_id)
     if not cancelled:
@@ -1320,6 +1398,17 @@ def api_chat():
     if auth_err:
         return auth_err
 
+    # Enforce per-user chat rate limit
+    usage = record_message(user.user_id)
+    if not usage["allowed"]:
+        return jsonify({
+            "error": f"Chat limit reached ({usage['limit']}/{usage['limit']}). Resets in {usage['reset_in_seconds'] // 60} minutes.",
+            "rate_limited": True,
+            "remaining": 0,
+            "limit": usage["limit"],
+            "reset_in_seconds": usage["reset_in_seconds"],
+        }), 429
+
     body = request.get_json(silent=True) or {}
     message = body.get("message", "")
     history = body.get("history", [])
@@ -1368,6 +1457,10 @@ def api_chat():
             "model_used": active_after,
             "status": "success",
             "elapsed_ms": elapsed_ms,
+            "usage": {
+                "remaining": usage["remaining"],
+                "limit": usage["limit"],
+            },
         })
 
     except ValueError as exc:
@@ -1385,6 +1478,17 @@ def api_dashboard_chat():
     user, auth_err = _get_auth_user()
     if auth_err:
         return auth_err
+
+    # Enforce per-user chat rate limit
+    usage = record_message(user.user_id)
+    if not usage["allowed"]:
+        return jsonify({
+            "error": f"Chat limit reached ({usage['limit']}/{usage['limit']}). Resets in {usage['reset_in_seconds'] // 60} minutes.",
+            "rate_limited": True,
+            "remaining": 0,
+            "limit": usage["limit"],
+            "reset_in_seconds": usage["reset_in_seconds"],
+        }), 429
 
     body = request.get_json(silent=True) or {}
     message = body.get("message", "")
@@ -1550,6 +1654,10 @@ def api_dashboard_chat():
             "task_type": task_type.value,
             "status": "success",
             "elapsed_ms": elapsed_ms,
+            "usage": {
+                "remaining": usage["remaining"],
+                "limit": usage["limit"],
+            },
         })
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

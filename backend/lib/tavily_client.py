@@ -47,6 +47,7 @@ def _get_api_key() -> str:
 # ── In-memory cache ──────────────────────────────────────────────────────────
 _tavily_cache = BoundedTTLCache(maxsize=500, ttl=3600, name="tavily")
 _last_request_time: float = 0.0
+_search_count: int = 0
 
 def clear_cache() -> None:
     """Drop all cached tavily responses -- useful for tests."""

@@ -4,6 +4,7 @@ const NAV_LINKS = [
   { label: "Research", to: "/research" },
   { label: "Dashboard", to: "/dashboard" },
   { label: "History", to: "/history" },
+  { label: "Reviews", to: "/reviews" },
   { label: "Methodology", to: "/methodology" },
 ];
 

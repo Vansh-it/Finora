@@ -18,6 +18,11 @@ export default defineConfig({
   },
   server: {
     port: 4321,
+    watch: {
+      // Windows can lock files the Flask backend writes (e.g. backend/data/*.json),
+      // which makes chokidar crash with EBUSY. Don't watch the backend.
+      ignored: ["**/backend/**", "**/*.log", "**/*.pyc"],
+    },
     proxy: {
       // Proxy /api requests to Flask backend
       "/api": {

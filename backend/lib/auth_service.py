@@ -28,6 +28,9 @@ _sessions: dict[str, "Session"] = {}
 _email_index: dict[str, str] = {}
 _loaded = False
 
+# Quota window: 5 researches per user per rolling 24 hours
+QUOTA_WINDOW_SECONDS = 24 * 3600
+
 
 def _ensure_loaded() -> None:
     """Load persisted data into memory on first access."""
@@ -48,6 +51,7 @@ def _ensure_loaded() -> None:
                 created_at=udata.get("created_at", 0),
                 research_runs_used=udata.get("research_runs_used", 0),
                 research_runs_limit=udata.get("research_runs_limit", 5),
+                quota_window_start=float(udata.get("quota_window_start", 0.0)),
             )
 
     # Load email index
@@ -109,6 +113,9 @@ class User:
     # Research usage limits
     research_runs_used: int = 0
     research_runs_limit: int = 5
+    # Start of the current 24h quota window. 0 (legacy users) forces an
+    # immediate reset on first quota check after upgrade.
+    quota_window_start: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -119,6 +126,7 @@ class User:
             "created_at": self.created_at,
             "research_runs_used": self.research_runs_used,
             "research_runs_limit": self.research_runs_limit,
+            "quota_window_start": self.quota_window_start,
         }
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -226,12 +234,22 @@ def sign_out(token: str) -> bool:
     return False
 
 
+def _maybe_reset_window(user: User) -> None:
+    """Reset research_runs_used when the 24h quota window expires."""
+    now = time.time()
+    if now - user.quota_window_start >= QUOTA_WINDOW_SECONDS:
+        user.research_runs_used = 0
+        user.quota_window_start = now
+        _persist_user(user)
+
+
 def increment_research_runs(user_id: str) -> bool:
     """Increment research_runs_used for a user. Returns True if under limit."""
     _ensure_loaded()
     user = _users.get(user_id)
     if user is None:
         return False
+    _maybe_reset_window(user)
     if user.research_runs_used >= user.research_runs_limit:
         return False
     user.research_runs_used += 1
@@ -244,13 +262,18 @@ def can_use_research(user_id: str) -> dict[str, Any]:
     _ensure_loaded()
     user = _users.get(user_id)
     if user is None:
-        return {"allowed": False, "remaining": 0, "limit": 5, "reason": "User not found"}
+        return {
+            "allowed": False, "remaining": 0, "limit": 5, "used": 5,
+            "reason": "User not found", "resets_at": 0,
+        }
+    _maybe_reset_window(user)
     remaining = max(0, user.research_runs_limit - user.research_runs_used)
     return {
         "allowed": remaining > 0,
         "remaining": remaining,
         "limit": user.research_runs_limit,
         "used": user.research_runs_used,
+        "resets_at": int(user.quota_window_start + QUOTA_WINDOW_SECONDS),
     }
 
 

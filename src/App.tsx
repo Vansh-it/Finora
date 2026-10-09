@@ -10,7 +10,9 @@ import DashboardPage from "./pages/DashboardPage";
 import HistoryPage from "./pages/HistoryPage";
 import ProfilePage from "./pages/ProfilePage";
 import MethodologyPage from "./pages/MethodologyPage";
+import ReviewsPage from "./pages/ReviewsPage";
 import AuthPage from "./pages/AuthPage";
+import LetterPage from "./pages/LetterPage";
 import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import AboutPage from "./pages/AboutPage";
@@ -35,7 +37,9 @@ export default function App() {
               />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/methodology" element={<MethodologyPage />} />
+              <Route path="/reviews" element={<ReviewsPage />} />
               <Route path="/auth" element={<AuthPage />} />
+              <Route path="/limit" element={<LetterPage />} />
               <Route path="/terms" element={<TermsPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route

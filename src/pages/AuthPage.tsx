@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, ArrowRight } from "lucide-react";
 import Annotation from "../components/Annotation";
 import DocumentCard from "../components/DocumentCard";
 import HighlightText from "../components/HighlightText";
@@ -8,16 +8,41 @@ import PaperTexture from "../components/PaperTexture";
 import { signIn, signUp } from "../lib/api";
 import { setToken } from "../lib/auth";
 
+interface AuthNavState {
+  from?: string;
+  mode?: "signin" | "signup";
+}
+
 export default function AuthPage() {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const navState = (location.state || {}) as AuthNavState;
+  const from = navState.from || "/research";
+
+  const [mode, setMode] = useState<"signin" | "signup">(
+    navState.mode === "signup" ? "signup" : "signin"
+  );
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const from = (location.state as Record<string, string>)?.from || "/research";
+
+  // Re-sync tab + pending research whenever a new redirect lands here
+  // (e.g. user goes back and searches another company).
+  useEffect(() => {
+    const s = (location.state || {}) as AuthNavState;
+    setMode(s.mode === "signup" ? "signup" : "signin");
+    setError(null);
+  }, [location.key]);
+
+  // Company the user asked to research before being asked to sign up
+  const pendingCompany = useMemo(() => {
+    const query = from.split("?")[1];
+    if (!query) return null;
+    const ticker = new URLSearchParams(query).get("ticker");
+    return ticker ? decodeURIComponent(ticker) : null;
+  }, [from]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,6 +130,20 @@ export default function AuthPage() {
           <p className="mt-2 text-sm text-ink-2">
             {mode === "signin" ? "Continue your research where you left off." : "Start building traceable research files."}
           </p>
+
+          {pendingCompany && (
+            <div className="mt-4 flex items-start gap-3 border-2 border-ink bg-paper-2 p-4">
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center bg-highlight">
+                <ArrowRight size={13} className="text-ink" />
+              </div>
+              <p className="text-sm leading-relaxed text-ink">
+                You asked to research{" "}
+                <span className="font-bold">{pendingCompany}</span>. Create your
+                account and Finora will start that research immediately — no
+                need to type it again.
+              </p>
+            </div>
+          )}
 
           {error && (
             <div className="mt-4 border border-red-300 bg-red-50 p-3 text-sm text-red-700">

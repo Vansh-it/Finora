@@ -17,7 +17,7 @@ from lib.auth_service import (
     sign_up, sign_in, sign_out, get_user_from_token, get_user,
     increment_research_runs, can_use_research, clear_all,
 )
-from lib.chat_usage import can_send_message, record_message, get_usage, clear_all as clear_chat
+from lib.chat_usage import can_send_message, record_message, get_usage, clear_all as clear_chat, DAILY_MESSAGE_LIMIT
 from lib.research_session import (
     grant_permission, get_session, cancel_session,
     update_session_status, clear_all_sessions,
@@ -194,22 +194,23 @@ class TestChatLimit:
         """New user should be able to send messages."""
         assert can_send_message("user_chat_test") is True
 
-    def test_records_15_messages(self):
-        """Should allow exactly 15 messages."""
+    def test_records_daily_limit_messages(self):
+        """Should allow exactly DAILY_MESSAGE_LIMIT (25) messages per day."""
         uid = "chat_limit_user"
-        for i in range(15):
+        for i in range(DAILY_MESSAGE_LIMIT):
             result = record_message(uid)
             assert result["allowed"] is True, f"Message {i+1} should be allowed"
         assert result["remaining"] == 0
 
-    def test_16th_message_blocked(self):
-        """16th message should be blocked."""
+    def test_next_message_beyond_limit_blocked(self):
+        """Message 26 (first after the daily limit) should be blocked."""
         uid = "chat_16th_user"
-        for _ in range(15):
+        for _ in range(DAILY_MESSAGE_LIMIT):
             record_message(uid)
         result = record_message(uid)
         assert result["allowed"] is False
         assert result["remaining"] == 0
+        assert result["reason"] == "message_limit"
 
     def test_usage_tracking(self):
         """Usage should track correctly."""
@@ -218,8 +219,8 @@ class TestChatLimit:
         record_message(uid)
         usage = get_usage(uid)
         assert usage["used"] == 2
-        assert usage["remaining"] == 13
-        assert usage["limit"] == 15
+        assert usage["remaining"] == DAILY_MESSAGE_LIMIT - 2
+        assert usage["limit"] == DAILY_MESSAGE_LIMIT
 
     def test_clear_all_works(self):
         """clear_all should reset chat data."""

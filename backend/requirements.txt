@@ -3,4 +3,5 @@ flask>=3.0.0
 flask-cors>=5.0.0
 openai>=3.0.0
 gunicorn
-httpx>=0.28.0
+httpx>=0.28.0gspread>=6.0.0
+google-auth>=2.28.0

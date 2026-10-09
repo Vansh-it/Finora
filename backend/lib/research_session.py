@@ -291,6 +291,10 @@ class ResearchSession:
         """Check if session reached a successful completion state."""
         return self.status in _COMPLETED_STATUSES
 
+    def is_in_progress(self) -> bool:
+        """True while the pipeline is actively running (not done/failed/cancelled)."""
+        return self.status in _ACTIVE_STATUSES and self.status not in _COMPLETED_STATUSES
+
 
 # ── Public API ───────────────────────────────────────────────────────────────
 def grant_permission(plan: dict[str, Any], user_id: str = "") -> ResearchSession:
@@ -356,6 +360,31 @@ def get_user_sessions(user_id: str) -> list[ResearchSession]:
     """Get all sessions belonging to a user."""
     _ensure_loaded()
     return [s for s in _sessions.values() if s.user_id == user_id]
+
+
+def get_user_in_progress_session(
+    user_id: str, max_age_minutes: int = 15
+) -> Optional[ResearchSession]:
+    """Return the user's actively running session, if any.
+
+    Only sessions younger than ``max_age_minutes`` block new research —
+    a crashed/stale run should not lock a user out forever.
+    """
+    _ensure_loaded()
+    now = datetime.now(timezone.utc)
+    for s in _sessions.values():
+        if s.user_id != user_id or not s.is_in_progress():
+            continue
+        try:
+            created = datetime.fromisoformat(s.created_at)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age_seconds = (now - created).total_seconds()
+        except (ValueError, TypeError):
+            continue
+        if age_seconds <= max_age_minutes * 60:
+            return s
+    return None
 
 
 def cancel_session(session_id: str) -> bool:

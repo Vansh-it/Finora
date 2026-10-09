@@ -62,7 +62,7 @@ interface DashboardData {
     title: string;
     headline: string;
     reason: string;
-    severity: string;
+    severity: "low" | "medium" | "high" | "critical";
     tag: string;
     evidence: Record<string, unknown>;
   }>;

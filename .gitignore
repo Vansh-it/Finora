@@ -38,3 +38,13 @@ __pycache__/
 
 # Temporary logs
 /tmp/
+
+# google service account keys (NEVER commit)
+credentials.json
+**/credentials.json
+*_key.json
+
+# Runtime server logs (local) - never commit
+live_backend*.log
+vite.log
+vite.err.log

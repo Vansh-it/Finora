@@ -3,6 +3,18 @@ const API_BASE = import.meta.env.VITE_API_URL || "";
 const MAX_RETRIES = 2;
 const INITIAL_RETRY_DELAY = 1000;
 
+export class ApiError extends Error {
+  status: number;
+  payload: Record<string, unknown> | null;
+
+  constructor(message: string, status: number, payload: Record<string, unknown> | null = null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -49,15 +61,19 @@ async function apiFetch<T>(
 
       if (!res.ok) {
         const errorMsg = data?.error || `Request failed (${res.status})`;
-        throw new Error(errorMsg);
+        throw new ApiError(errorMsg, res.status, data);
       }
 
       return data as T;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
 
-      // Don't retry on 4xx client errors (including 429 rate limit)
-      if (lastError.message.includes("(4") || lastError.message.includes("company_limit_reached")) {
+      // Don't retry on 4xx client errors (quota 429, conflict 409, etc.)
+      if (
+        (err instanceof ApiError && err.status >= 400 && err.status < 500) ||
+        lastError.message.includes("(4") ||
+        lastError.message.includes("company_limit_reached")
+      ) {
         throw lastError;
       }
 
@@ -165,6 +181,170 @@ export async function sendDashboardChatMessage(
     body: JSON.stringify({ message, session_id: sessionId, history }),
     headers,
   });
+}
+
+// ── Chat research streaming + usage quota ───────────────────────────────────
+
+export interface ChatUsage {
+  messages_used: number;
+  messages_limit: number;
+  messages_remaining: number;
+  words_used: number;
+  words_limit: number;
+  words_remaining: number;
+  reset_at: string;
+}
+
+export async function getChatUsage(token?: string): Promise<ChatUsage> {
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return apiFetch("/api/chat/usage", { headers });
+}
+
+export interface ChatSource {
+  title: string;
+  url: string;
+  publisher: string;
+  published_at?: string;
+  tier?: string;
+}
+
+export interface ChatResearchInfo {
+  mode: string;
+  performed: boolean;
+  num_queries: number;
+  num_sources_found: number;
+  num_sources_used: number;
+  search_ms: number;
+  fetch_ms: number;
+  llm_ms: number;
+  total_ms: number;
+  degraded: boolean;
+}
+
+export interface ChatUsageInline extends Partial<ChatUsage> {
+  remaining?: number;
+  limit?: number;
+}
+
+export interface ChatAnswerPayload {
+  response: string;
+  status: string;
+  elapsed_ms: number;
+  word_count?: number;
+  response_compressed?: boolean;
+  sources?: ChatSource[];
+  research?: ChatResearchInfo;
+  usage?: ChatUsageInline;
+}
+
+export type ChatStage =
+  | "understanding"
+  | "internal"
+  | "searching"
+  | "comparing"
+  | "synthesizing";
+
+export interface ChatStreamHandlers {
+  onStatus?: (stage: ChatStage) => void;
+  onAnswer?: (payload: ChatAnswerPayload) => void;
+  onError?: (message: string) => void;
+}
+
+/**
+ * POST /api/chat/stream — reads an SSE-style stream of JSON frames:
+ *   {"event":"status","stage":...} | {"event":"answer",...} | {"event":"error",...}
+ * Research statuses are emitted only when the backend actually runs that stage.
+ */
+export async function streamChatMessage(opts: {
+  message: string;
+  history?: ChatHistoryMessage[];
+  sessionId?: string | null;
+  previousMode?: string | null;
+  token?: string;
+  handlers: ChatStreamHandlers;
+}): Promise<void> {
+  const { message, history = [], sessionId, previousMode, token, handlers } = opts;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/chat/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        message,
+        history,
+        session_id: sessionId || "",
+        previous_mode: previousMode || null,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      let msg = `Request failed (${res.status})`;
+      try {
+        const data = await res.json();
+        if (data?.error) msg = data.error;
+      } catch {
+        /* keep generic message */
+      }
+      const err = new Error(msg) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("text/event-stream")) {
+      const data = await res.json();
+      if (data?.event === "error" || data?.error) {
+        handlers.onError?.(data.error || "Request failed");
+      } else if (data?.response) {
+        handlers.onAnswer?.(data as ChatAnswerPayload);
+      }
+      return;
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error("Streaming is not supported by this browser.");
+    }
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data: "));
+        if (!line) continue;
+        let parsed: Record<string, unknown> & { event?: string };
+        try {
+          parsed = JSON.parse(line.slice(6));
+        } catch {
+          continue;
+        }
+        if (parsed.event === "status") {
+          handlers.onStatus?.(parsed.stage as ChatStage);
+        } else if (parsed.event === "answer") {
+          handlers.onAnswer?.(parsed as unknown as ChatAnswerPayload);
+        } else if (parsed.event === "error") {
+          handlers.onError?.(
+            (parsed.error as string) || "Finora is temporarily unable to respond."
+          );
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Intent Classification ─────────────────────────────────────────────────────
@@ -478,7 +658,13 @@ export async function cancelSession(
 
 export async function getResearchQuota(
   token: string
-): Promise<{ allowed: boolean; used: number; limit: number; remaining: number }> {
+): Promise<{
+  allowed: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+  resets_at: number;
+}> {
   return apiFetch("/api/research/quota", {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -528,6 +714,8 @@ export interface HistoryResponse {
     used: number;
     limit: number;
     remaining: number;
+    resets_at?: number;
+    exhausted?: boolean;
   };
 }
 
@@ -555,6 +743,7 @@ export interface ProfileData {
     used: number;
     limit: number;
     remaining: number;
+    resets_at?: number;
   };
 }
 
@@ -583,4 +772,37 @@ export async function healthCheck(): Promise<{
   providers_available: number;
 }> {
   return apiFetch("/api/health");
+}
+
+// ── Reviews ──────────────────────────────────────────────────────────────────
+
+export interface Review {
+  timestamp: string;
+  name: string;
+  company: string;
+  rating: number;
+  review: string;
+}
+
+export interface ReviewsResponse {
+  reviews: Review[];
+  configured?: boolean;
+  error?: string | null;
+}
+
+export async function getReviews(limit = 12): Promise<ReviewsResponse> {
+  return apiFetch(`/api/reviews?limit=${limit}`);
+}
+
+export async function submitReview(data: {
+  name: string;
+  company: string;
+  rating: number;
+  review: string;
+  website?: string;
+}): Promise<{ status: string; message: string; review: Review }> {
+  return apiFetch("/api/reviews", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }

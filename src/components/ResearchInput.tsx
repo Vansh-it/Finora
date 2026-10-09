@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback, type FormEvent } from "react"
 import { ArrowRight, AlertCircle, Search, Building2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TickerChip from "./TickerChip";
-import { isAuthenticated } from "../lib/auth";
+import { getToken, isAuthenticated } from "../lib/auth";
+import { getResearchQuota } from "../lib/api";
 
 const QUICK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"];
 
@@ -21,11 +22,28 @@ export default function ResearchInput() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
+  const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const navigate = useNavigate();
+
+  // Fetch the user's remaining researches so an exhausted user is sent
+  // straight to the letter page instead of a failing pipeline.
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+    const token = getToken();
+    if (!token) return;
+    getResearchQuota(token)
+      .then((q) => setQuotaRemaining(q.remaining))
+      .catch(() => {});
+  }, []);
+
+  // True when the user has used all 5 researches this window
+  function isExhausted(): boolean {
+    return quotaRemaining !== null && quotaRemaining <= 0;
+  }
 
   useEffect(() => {
     return () => {
@@ -78,6 +96,13 @@ export default function ResearchInput() {
     inputRef.current?.focus();
   }
 
+  function buildResearchUrl(query: string): string {
+    // If it looks like a ticker (1-5 uppercase letters), use as ticker
+    // Otherwise use as search query
+    const isTicker = /^[A-Za-z]{1,5}$/.test(query);
+    return `/research?ticker=${isTicker ? query.toUpperCase() : encodeURIComponent(query)}`;
+  }
+
   function handleSubmit(e: FormEvent, tickerOverride?: string) {
     e.preventDefault();
     const query = tickerOverride || value.trim();
@@ -85,18 +110,19 @@ export default function ResearchInput() {
       triggerError();
       return;
     }
+    const target = buildResearchUrl(query);
     if (!isAuthenticated()) {
-      navigate("/auth", { state: { from: "/research" } });
+      // New user: send them to the SIGN UP tab with the research pending,
+      // so it starts automatically right after account creation.
+      navigate("/auth", { state: { from: target, mode: "signup" } });
       return;
     }
-    // If it looks like a ticker (1-5 uppercase letters), use as ticker
-    // Otherwise use as search query
-    const isTicker = /^[A-Za-z]{1,5}$/.test(query);
-    if (isTicker) {
-      navigate(`/research?ticker=${query.toUpperCase()}`);
-    } else {
-      navigate(`/research?ticker=${encodeURIComponent(query)}`);
+    if (isExhausted()) {
+      // Out of researches: the developer's letter explains what happens next
+      navigate("/limit");
+      return;
     }
+    navigate(target);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -253,7 +279,11 @@ export default function ResearchInput() {
         {QUICK_TICKERS.map((t) => (
           <TickerChip key={t} ticker={t} onClick={() => {
             if (!isAuthenticated()) {
-              navigate("/auth", { state: { from: "/research" } });
+              navigate("/auth", { state: { from: `/research?ticker=${t}`, mode: "signup" } });
+              return;
+            }
+            if (isExhausted()) {
+              navigate("/limit");
               return;
             }
             navigate(`/research?ticker=${t}`);

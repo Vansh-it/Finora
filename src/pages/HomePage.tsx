@@ -8,6 +8,7 @@ import SourceStamp from "../components/SourceStamp";
 import DocumentCard from "../components/DocumentCard";
 import PaperTexture from "../components/PaperTexture";
 import AnimatedMetric from "../components/AnimatedMetric";
+import ReviewsSection from "../components/ReviewsSection";
 import FinoraFAQ from "../components/FinoraFAQ";
 
 const PIPELINE = [
@@ -204,6 +205,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* REVIEWS */}
+      <ReviewsSection />
 
       {/* FAQ SECTION */}
       <FinoraFAQ />

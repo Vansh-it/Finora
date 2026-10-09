@@ -8,6 +8,7 @@ const LINKS = [
   { label: "Research", to: "/research" },
   { label: "Dashboard", to: "/dashboard" },
   { label: "History", to: "/history" },
+  { label: "Reviews", to: "/reviews" },
   { label: "Methodology", to: "/methodology" },
 ];
 
@@ -27,7 +28,9 @@ export default function Navigation() {
     // Auth-protected links: redirect to /auth if not logged in
     const protectedLinks = ["/research", "/dashboard", "/history", "/profile"];
     if (protectedLinks.includes(link.to) && !loggedIn) {
-      navigate("/auth", { state: { from: link.to } });
+      navigate("/auth", {
+        state: { from: link.to, ...(link.to === "/research" && { mode: "signup" }) },
+      });
       return;
     }
   }

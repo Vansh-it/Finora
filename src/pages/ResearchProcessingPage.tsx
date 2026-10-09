@@ -5,7 +5,7 @@ import EditorialHeading from "../components/EditorialHeading";
 import Annotation from "../components/Annotation";
 import { cn } from "../utils/cn";
 import { getToken, removeToken } from "../lib/auth";
-import { runResearch } from "../lib/api";
+import { runResearch, ApiError } from "../lib/api";
 
 const STAGES = [
   { key: "company", title: "Entity Identified", detail: "Resolved company name to CIK and primary exchange listing." },
@@ -43,7 +43,7 @@ export default function ResearchProcessingPage() {
     async function run() {
       const token = getToken();
       if (!token) {
-        navigate("/auth", { state: { from: `/research?ticker=${ticker}` } });
+        navigate("/auth", { state: { from: `/research?ticker=${ticker}`, mode: "signup" } });
         return;
       }
 
@@ -77,6 +77,32 @@ export default function ResearchProcessingPage() {
         }, 800);
       } catch (err) {
         if (timerRef.current) clearInterval(timerRef.current);
+
+        if (err instanceof ApiError) {
+          // Out of researches this window → the developer's letter page
+          if (err.payload?.quota_exhausted) {
+            navigate("/limit", {
+              state: { resets_at: (err.payload.resets_at as number) || 0 },
+            });
+            return;
+          }
+          // Another research is already running → one company at a time
+          if (err.payload?.research_in_progress) {
+            setErrorMsg(err.message);
+            setStageStatuses((prev) => {
+              const idx = prev.findIndex((s) => s === "active");
+              if (idx >= 0) prev[idx] = "error";
+              return [...prev];
+            });
+            return;
+          }
+          if (err.status === 401) {
+            removeToken();
+            navigate("/auth", { state: { from: `/research?ticker=${ticker}`, mode: "signup" } });
+            return;
+          }
+        }
+
         const msg = err instanceof Error ? err.message : "Could not connect to the Finora backend.";
         if (msg.includes("401") || msg.includes("Invalid") || msg.includes("expired")) {
           removeToken();

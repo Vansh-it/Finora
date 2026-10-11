@@ -1,737 +1,465 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import {
-  ArrowDownRight, ArrowUpRight, BadgeCheck, ChevronDown, Copy, Download, ExternalLink,
-  FileSearch, FileSpreadsheet, LayoutDashboard, MessageSquare, Plus, Share2, Star, TriangleAlert,
-} from 'lucide-react';
-import { getSession } from '../lib/api';
-import type { DashboardSession, MetricEvidence } from '../lib/data';
-import { toggleWatch, getWatchlist, getHistory } from '../lib/api';
-import { formatPercent, formatDate } from '../lib/format';
-import { StatementTable } from '../components/StatementTable';
-import { EvidenceSheet } from '../components/EvidenceSheet';
-import { AskFinoraSheet } from '../components/AskFinoraSheet';
-import { PullToRefresh } from '../components/PullToRefresh';
-import { RevenueChart, Sparkline, TrendChart } from '../components/Charts';
-import { ErrorState, ProgressBar, Skeleton, SourceStamp, TickerChip, TierBadge, UnavailableMetric } from '../components/ui';
-import { useCachedQuery, useCountUp } from '../hooks/hooks';
-import { useToast } from '../hooks/toast';
-import { cn } from '../lib/cn';
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
+import CompanyHeader from "../components/CompanyHeader";
+import ResearchQualityBar from "../components/ResearchQualityBar";
+import KPICard from "../components/KPICard";
+import DashboardTabs, { type DashboardTab } from "../components/DashboardTabs";
+import StatementTable from "../components/StatementTable";
+import FinancialChart from "../components/FinancialChart";
+import ExecutiveAnalysis from "../components/ExecutiveAnalysis";
+import ValuationGrid from "../components/ValuationGrid";
+import SourceLedger from "../components/SourceLedger";
+import EvidenceDrawer from "../components/EvidenceDrawer";
+import AskFinoraDrawer from "../components/AskFinoraDrawer";
+import ForensicCards from "../components/ForensicCards";
+import RedFlagList from "../components/RedFlagList";
+import MacroStrip from "../components/MacroStrip";
 
-const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'income', label: 'Income' },
-  { id: 'balance', label: 'Balance' },
-  { id: 'cashflow', label: 'Cash Flow' },
-  { id: 'growth', label: 'Growth' },
-  { id: 'profit', label: 'Profit' },
-  { id: 'valuation', label: 'Valuation' },
-  { id: 'forensics', label: 'Forensics' },
-  { id: 'sources', label: 'Sources' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
+import EditorialHeading from "../components/EditorialHeading";
+import HighlightText from "../components/HighlightText";
+import { getResearchResult } from "../lib/api";
+import { getToken, removeToken } from "../lib/auth";
 
-// ---------------- Top actions (rendered in App shell) ----------------
-export function DashboardTopActions() {
-  const [params] = useSearchParams();
-  const sessionId = params.get('session_id') ?? '';
-  const toast = useToast();
-  const [watched, setWatched] = useState(false);
-  const [ticker, setTicker] = useState('');
-  const [busy, setBusy] = useState(false);
+// Types matching the backend dashboard payload
+interface DashboardData {
+  company: {
+    name: string;
+    ticker: string;
+    exchange: string;
+    period: string;
+    period_mode: string;
+    currency: string;
+    cik: string;
+    logoInitials: string;
+  };
+  periods: string[];
+  kpis: Array<{
+    id: string;
+    label: string;
+    value: string;
+    change?: { value: string; direction: string };
+    spark?: number[];
+    verification?: Record<string, unknown>;
+  }>;
+  income_statement: { columns: string[]; rows: Array<{ label: string; values: string[]; strong?: boolean }> };
+  balance_sheet: { columns: string[]; rows: Array<{ label: string; values: string[]; strong?: boolean }> };
+  cash_flow: { columns: string[]; rows: Array<{ label: string; values: string[]; strong?: boolean }> };
+  growth: { columns: string[]; rows: Array<{ label: string; values: string[]; strong?: boolean }> };
+  profitability: Array<{ metric: string; value: string; note: string }>;
+  liquidity: Array<{ metric: string; value: string; note: string }>;
+  leverage: Array<{ metric: string; value: string; note: string }>;
+  efficiency: Array<{ metric: string; value: string; note: string }>;
+  capital_allocation: Array<{ metric: string; value: string; note: string }>;
+  dupont?: { roe: string; net_margin: string; asset_turnover: string; equity_multiplier: string; calculation: string; methodology: string } | null;
+  forensic_scores?: {
+    piotroski?: { score: number; status: string; signals: Array<{ label: string; value: number; max: number }>; interpretation: string } | null;
+    altman?: { score: number; status: string; zone: string; applicable: boolean; reason: string; factors: Array<{ name: string; value: number }>; variant: string } | null;
+    beneish?: { score: number; status: string; applicable: boolean; reason: string; indices: Array<{ name: string; value: number }> } | null;
+  };
+  watch_items?: Array<{
+    id: string;
+    title: string;
+    headline: string;
+    reason: string;
+    severity: "low" | "medium" | "high" | "critical";
+    tag: string;
+    evidence: Record<string, unknown>;
+  }>;
+  macro_context?: {
+    available: boolean;
+    strip: Array<{ label: string; value: string; series_id?: string; date?: string }>;
+    attribution: string;
+  };
+  charts: {
+    revenue: Array<{ label: string; value: number }>;
+    operating_income: Array<{ label: string; value: number }>;
+    net_income: Array<{ label: string; value: number }>;
+    free_cash_flow: Array<{ label: string; value: number }>;
+  };
+  sources: Array<{
+    id: string;
+    name: string;
+    meta: string;
+    pages: string;
+    status: string;
+    url: string;
+    trust_tier: number;
+    period: string;
+  }>;
+  management_commentary: Array<Record<string, unknown>>;
+  data_quality: {
+    primary_source: string;
+    metrics_calculated: number;
+    cross_verified: number;
+    mismatches: number;
+    sources_count: number;
+  };
+  executive_summary?: {
+    executive_overview: string;
+    highlights: Array<{ title: string; text: string }>;
+    growth_analysis: string;
+    profitability_analysis: string;
+    cash_flow_analysis: string;
+    balance_sheet_analysis: string;
+    watch_items: Array<{ tag: string; text: string }>;
+    management_commentary_summary: string;
+    data_quality_note: string;
+  };
+  valuation: {
+    market_data: {
+      price: number | null;
+      price_date: string;
+      previous_close: number | null;
+      percent_change: number | null;
+      exchange: string;
+      currency: string;
+      source: string;
+      is_historical: boolean;
+      alignment_status: string;
+      target_date: string;
+    };
+    metrics: Array<{
+      metric_id: string;
+      name: string;
+      display_value: string;
+      value: number | null;
+      status: string;
+      applicability: string;
+      formula: string;
+      inputs: string[];
+      calculation: string;
+      market_data_date: string;
+      price_type: string;
+      reason: string;
+    }>;
+    period_alignment: Record<string, unknown>;
+    is_financial_institution: boolean;
+    is_historical: boolean;
+  };
+}
 
+
+
+export default function DashboardPage() {
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const sessionId = params.get("session_id");
+  const ticker = (params.get("ticker") || "").toUpperCase();
+  const initialTab = (params.get("tab") as DashboardTab) || "OVERVIEW";
+  const [tab, setTab] = useState<DashboardTab>(initialTab);
+  const [evidenceMetric, setEvidenceMetric] = useState<string | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch real data from backend
   useEffect(() => {
-    if (!sessionId) return;
-    getSession(sessionId).then(
-      (s) => {
-        setTicker(s.ticker);
-        setWatched(getWatchlist().includes(s.ticker));
-      },
-      () => {},
-    );
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchData() {
+      const token = getToken();
+      if (!token) {
+        navigate("/auth", { state: { from: `/dashboard?session_id=${sessionId}` } });
+        return;
+      }
+
+      try {
+        const result = await getResearchResult(sessionId!, token);
+        if (!cancelled) {
+          setData(result as unknown as DashboardData);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Failed to load research data";
+          if (msg.includes("401") || msg.includes("Invalid") || msg.includes("expired")) {
+            removeToken();
+            navigate("/auth", { state: { from: `/dashboard?session_id=${sessionId}` } });
+          } else {
+            setError(msg);
+            setLoading(false);
+          }
+        }
+      }
+    }
+
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
 
-  if (!sessionId) return null;
-
-  const doExport = async () => {
-    setBusy(true);
-    toast('Preparing Excel export…', 'info');
-    try {
-      const mod = await import('../lib/excelExport');
-      const s = await getSession(sessionId);
-      await mod.exportSession(s);
-      toast('Export ready', 'ok');
-    } catch {
-      toast('Export failed — try again', 'warn');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        aria-label={watched ? `Remove ${ticker} from watchlist` : `Add ${ticker} to watchlist`}
-        aria-pressed={watched}
-        onClick={() => {
-          if (!ticker) return;
-          const next = toggleWatch(ticker);
-          setWatched(next.includes(ticker));
-          toast(next.includes(ticker) ? `${ticker} added to watchlist` : `${ticker} removed`, 'ok');
-        }}
-        className="pressable flex h-11 w-11 items-center justify-center rounded-xl text-white"
-      >
-        <Star size={20} className={watched ? 'fill-[#ffb25c] text-[#ffb25c]' : ''} />
-      </button>
-      <button
-        aria-label="Export to Excel"
-        onClick={doExport}
-        disabled={busy}
-        className="pressable flex h-11 w-11 items-center justify-center rounded-xl text-white disabled:opacity-50"
-      >
-        <FileSpreadsheet size={20} />
-      </button>
-    </div>
-  );
-}
-
-// ---------------- Page ----------------
-export function DashboardPage() {
-  const [params, setParams] = useSearchParams();
-  const sessionId = params.get('session_id') ?? '';
-  const tabParam = params.get('tab') as TabId | null;
-  const active: TabId = TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : 'overview';
-
-  const query = useCachedQuery<DashboardSession>(
-    `session:${sessionId}`,
-    async (signal) => { void signal; return getSession(sessionId); },
-    { enabled: Boolean(sessionId), ttlMs: 120_000 },
-  );
-
-  const [evidence, setEvidence] = useState<MetricEvidence | null>(null);
-  const [askOpen, setAskOpen] = useState(false);
-  const [compact, setCompact] = useState(false);
-  const lastY = useRef(0);
-
-  useEffect(() => {
-    const main = document.querySelector('.app-main');
-    if (!main) return;
-    const onScroll = () => {
-      const y = (main as HTMLElement).scrollTop;
-      if (y > 160 && y > lastY.current) setCompact(true);
-      else if (y < lastY.current - 8 || y < 60) setCompact(false);
-      lastY.current = y;
-    };
-    main.addEventListener('scroll', onScroll, { passive: true });
-    return () => main.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const setTab = (t: TabId) => {
-    const next = new URLSearchParams(params);
-    next.set('tab', t);
-    setParams(next, { replace: true });
-  };
-
-  if (!sessionId) {
-    return <BoardHome />;
+  function selectTicker(t: string) {
+    setParams({ ticker: t });
   }
 
-  if (query.loading && !query.data) {
-    return (
-      <div className="space-y-3 px-5 pt-5" aria-label="Loading dashboard">
-        <Skeleton className="h-[92px] w-full" />
-        <div className="flex gap-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-9 w-20 shrink-0" />)}</div>
-        <Skeleton className="h-11 w-full" />
-        <div className="grid grid-cols-2 gap-3"><Skeleton className="h-[110px]" /><Skeleton className="h-[110px]" /></div>
-        <Skeleton className="h-[240px] w-full" />
-      </div>
-    );
-  }
+  const tabContent = useMemo(() => {
+    if (!data) return null;
 
-  if (query.error && !query.data) {
-    return (
-      <div className="px-5 pt-6">
-        <ErrorState message="Couldn't load this research file. It may have expired." onRetry={() => { void query.refetch(); }} />
-        <Link to="/history" className="pressable mt-2 flex min-h-[52px] items-center justify-center rounded-2xl border border-white/15 bg-white/[0.06] font-display text-[15px] font-semibold text-white">Back to History</Link>
-      </div>
-    );
-  }
-
-  const s = query.data!;
-  const mismatchFilter = params.get('filter') === 'mismatch';
-
-  return (
-    <div className="pb-28">
-      <CompanyHeader session={s} compact={compact} />
-      <QualityBar session={s} onMismatch={() => { setTab('sources'); }} />
-      <TabStrip active={active} onChange={setTab} />
-
-      <PullToRefresh onRefresh={() => query.refetch()}>
-        <SwipeArea
-          active={active}
-          onChange={setTab}
-          content={
-            <div key={active} className="anim-fade px-5 pt-4" role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
-              {active === 'overview' && <OverviewTab s={s} onEvidence={setEvidence} />}
-              {active === 'income' && <StatementTable lines={s.income} periods={s.periods} onCell={setEvidence} />}
-              {active === 'balance' && <StatementTable lines={s.balance} periods={s.periods} onCell={setEvidence} />}
-              {active === 'cashflow' && <StatementTable lines={s.cashflow} periods={s.periods} onCell={setEvidence} />}
-              {active === 'growth' && <MetricList metrics={s.growth} onEvidence={setEvidence} />}
-              {active === 'profit' && <MetricList metrics={s.profitability} onEvidence={setEvidence} />}
-              {active === 'valuation' && <ValuationTab s={s} onEvidence={setEvidence} />}
-              {active === 'forensics' && <ForensicsTab s={s} />}
-              {active === 'sources' && <SourcesTab s={s} mismatchOnly={mismatchFilter} />}
-            </div>
-          }
-        />
-      </PullToRefresh>
-
-      <button
-        onClick={() => setAskOpen(true)}
-        className="btn-primary pressable fixed bottom-[92px] z-40 flex min-h-[52px] items-center gap-2 rounded-2xl px-5 font-display text-[15px] font-semibold text-white"
-        style={{ right: 'max(16px, calc(50% - 215px + 16px))' }}
-        aria-haspopup="dialog"
-      >
-        <MessageSquare size={18} /> Ask Finora
-      </button>
-
-      <EvidenceSheet evidence={evidence} onClose={() => setEvidence(null)} />
-      <AskFinoraSheet open={askOpen} onClose={() => setAskOpen(false)} ticker={s.ticker} sessionId={s.sessionId} />
-    </div>
-  );
-}
-
-// ---------------- Board landing (no session open) ----------------
-function BoardHome() {
-  const hist = useCachedQuery('history', async () => getHistory(), { ttlMs: 30_000 });
-  const items = hist.data ?? [];
-  const loading = hist.loading && !hist.data;
-  const hasItems = items.length > 0;
-
-  return (
-    <div className="grid-glow px-5 pb-10 pt-6">
-      <p className="mono-label anim-rise text-[#ff8a3d]">Board</p>
-      <h1 className="anim-rise mt-1 font-display text-[26px] font-bold leading-[30px] tracking-tight text-white">
-        {hasItems ? 'Pick up where you left off' : 'Your research board'}
-      </h1>
-
-      {/* hero / empty state */}
-      <div className="card-dark anim-rise stagger-1 relative mt-5 overflow-hidden p-6 text-center">
-        <div className="pointer-events-none absolute -top-16 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-[#ff5a1f]/15 blur-2xl" aria-hidden />
-        <div className="relative mx-auto flex h-20 w-20 items-center justify-center">
-          <span className="absolute inset-0 rounded-3xl border border-[#ff5a1f]/25" aria-hidden />
-          <span className="absolute inset-2 rounded-2xl border border-dashed border-white/10" aria-hidden />
-          {loading ? (
-            <Skeleton className="h-10 w-10 rounded-xl" />
-          ) : hasItems ? (
-            <LayoutDashboard size={30} className="text-[#ff8a3d]" />
-          ) : (
-            <Plus size={30} className="text-[#ff8a3d]" />
-          )}
-        </div>
-        {loading ? (
-          <div className="mx-auto mt-4 max-w-[260px] space-y-2">
-            <Skeleton className="h-5 w-40 mx-auto" />
-            <Skeleton className="h-4 w-full" />
-          </div>
-        ) : (
-          <>
-            <h2 className="mt-4 font-display text-[19px] font-bold text-white">
-              {hasItems ? `You have ${items.length} saved ${items.length === 1 ? 'research' : 'researches'}` : 'Nothing on the board yet'}
-            </h2>
-            <p className="mx-auto mt-1.5 max-w-[300px] text-[14px] leading-6 text-[#a7a29a]">
-              {hasItems
-                ? 'Tap any card below to reopen its dashboard — receipts, forensics and AI memo included.'
-                : 'Run one investigation and its full dashboard lands here: statements, 48+ metrics and a receipt for every number.'}
-            </p>
-          </>
-        )}
-
-        <div className="mt-5 space-y-2">
-          <Link
-            to="/research"
-            className="btn-primary pressable flex min-h-[54px] items-center justify-center gap-2 rounded-2xl font-display text-[15px] font-semibold text-white"
-          >
-            <Plus size={18} /> {hasItems ? 'Start a new research' : 'Start Research'}
-          </Link>
-          <Link
-            to="/history"
-            className="pressable flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.05] font-display text-[14px] font-semibold text-white"
-          >
-            <FileSearch size={16} /> Open History
-          </Link>
-        </div>
-      </div>
-
-      {/* recent researches */}
-      {loading ? (
-        <div className="mt-5 space-y-2.5" aria-label="Loading recent researches">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[76px] w-full" />)}
-        </div>
-      ) : hasItems ? (
-        <section className="anim-rise stagger-2 mt-5" aria-label="Recent researches">
-          <div className="mb-2.5 flex items-end justify-between">
-            <p className="mono-label text-[#6b675c]">Recent researches</p>
-            <Link to="/history" className="flex min-h-[44px] items-center font-mono text-[11px] tracking-wider text-[#ff8a3d]">VIEW ALL</Link>
-          </div>
-          <div className="space-y-2.5">
-            {items.slice(0, 5).map((h, i) => (
-              <Link
-                key={h.sessionId}
-                to={`/dashboard?session_id=${encodeURIComponent(h.sessionId)}`}
-                className="card-dark pressable group flex gap-3 p-3.5 anim-rise"
-                style={{ animationDelay: `${i * 0.05}s` }}
-                aria-label={`Open ${h.company} research from ${formatDate(h.date)}`}
-              >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#ff5a1f]/30 bg-[#ff5a1f]/10 font-display text-[15px] font-bold text-[#ff8a3d]">
-                  {(h.ticker || h.company || '?').slice(0, 1).toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <TickerChip ticker={h.ticker} />
-                    <span className="truncate font-mono text-[11px] text-[#6b675c]">{h.period || formatDate(h.date)}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate font-display text-[15px] font-semibold text-white">{h.company}</span>
-                  <span className="mt-0.5 flex items-center gap-3 font-mono text-[11px] text-[#6b675c]">
-                    <span>{h.metrics} metrics</span>
-                    <span>{h.sources} sources</span>
-                  </span>
-                </span>
-                <ArrowUpRight size={18} className="mt-0.5 shrink-0 text-[#6b675c] transition-transform group-active:translate-x-0.5 group-active:-translate-y-0.5" />
-              </Link>
-            ))}
-          </div>
-        </section>
-      ) : null}
-    </div>
-  );
-}
-
-// ---------------- header ----------------
-function CompanyHeader({ session: s, compact }: { session: DashboardSession; compact: boolean }) {
-  const toast = useToast();
-  const up = s.changePct >= 0;
-  const animated = useCountUp(s.price, 800, !compact);
-
-  if (compact) {
-    return (
-      <div className="anim-fade sticky top-0 z-30 flex min-h-[44px] items-center gap-2 border-b border-white/10 bg-[#0a0a0c]/95 px-5 backdrop-blur">
-        <TickerChip ticker={s.ticker} />
-        <span className="num text-[14px] font-semibold text-white">${s.price.toFixed(2)}</span>
-        <span className={cn('num flex items-center text-[12px] font-semibold', up ? 'text-[#34d399]' : 'text-[#f87171]')}>
-          {up ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}{formatPercent(s.changePct)}
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid-glow border-b border-white/10 px-5 pb-4 pt-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <TickerChip ticker={s.ticker} />
-            <span className="font-mono text-[11px] text-[#6b675c]">{s.exchange}</span>
-          </div>
-          <h1 className="mt-1.5 line-clamp-2 font-display text-[24px] font-bold leading-[28px] tracking-tight text-white">{s.company}</h1>
-        </div>
-        <SourceStamp />
-      </div>
-      <div className="mt-2.5 flex items-end gap-2">
-        <p className="num text-[32px] font-semibold leading-none text-white">${animated.toFixed(2)}</p>
-        <p className={cn('num mb-0.5 flex items-center gap-0.5 text-[14px] font-semibold', up ? 'text-[#34d399]' : 'text-[#f87171]')}>
-          {up ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}{formatPercent(s.changePct)}
-        </p>
-      </div>
-      <button
-        onClick={async () => { try { await navigator.clipboard.writeText(s.sessionId); toast('Session ID copied'); } catch { toast('Copy unavailable', 'warn'); } }}
-        className="pressable mt-2 flex min-h-[44px] items-center gap-1.5 font-mono text-[11px] text-[#6b675c]"
-        aria-label={`Session ${s.sessionId}. Tap to copy.`}
-      >
-        <Copy size={12} /> {s.sessionId.slice(0, 24)}…
-      </button>
-    </div>
-  );
-}
-
-// ---------------- quality bar ----------------
-function QualityBar({ session: s, onMismatch }: { session: DashboardSession; onMismatch: () => void }) {
-  const q = s.quality;
-  const pills = [
-    { label: q.primary, sub: 'primary', icon: BadgeCheck },
-    { label: `${q.metrics}`, sub: 'metrics', icon: null },
-    { label: `${q.sources}`, sub: 'sources', icon: null },
-    { label: `${q.crossVerified}`, sub: 'verified', icon: null },
-  ];
-  return (
-    <div className="snap-row border-b border-white/10 px-5 py-3" role="list" aria-label="Research quality">
-      {pills.map((p) => (
-        <span key={p.sub} role="listitem" className="flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.04] px-3.5">
-          {p.icon && <p.icon size={14} className="text-[#34d399]" />}
-          <span className="num text-[13px] font-semibold text-white">{p.label}</span>
-          <span className="font-mono text-[10px] uppercase text-[#6b675c]">{p.sub}</span>
-        </span>
-      ))}
-      <span role="listitem" className="flex shrink-0">
-        {q.mismatches > 0 ? (
-          <button
-            onClick={onMismatch}
-            aria-label={`${q.mismatches} mismatches. View sources.`}
-            className="pressable flex min-h-[44px] items-center gap-1.5 rounded-full border border-[#fbbf24]/50 bg-[#fbbf24]/10 px-3.5"
-          >
-            <TriangleAlert size={14} className="text-[#fbbf24]" />
-            <span className="num text-[13px] font-semibold text-[#fbbf24]">{q.mismatches}</span>
-            <span className="font-mono text-[10px] uppercase text-[#6b675c]">mismatch</span>
-          </button>
-        ) : (
-          <span className="flex min-h-[44px] items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.04] px-3.5" aria-label="No mismatches">
-            <span className="num text-[13px] font-semibold text-white">{q.mismatches}</span>
-            <span className="font-mono text-[10px] uppercase text-[#6b675c]">mismatch</span>
-          </span>
-        )}
-      </span>
-    </div>
-  );
-}
-
-// ---------------- tab strip ----------------
-function TabStrip({ active, onChange }: { active: TabId; onChange: (t: TabId) => void }) {
-  const strip = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = strip.current?.querySelector<HTMLElement>(`#tab-${active}`);
-    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [active]);
-
-  return (
-    <div ref={strip} role="tablist" aria-label="Dashboard sections"
-      className="tab-strip sticky top-0 z-30 flex gap-1.5 overflow-x-auto border-b border-white/10 bg-[#0a0a0c]/95 px-4 py-2.5 backdrop-blur">
-      {TABS.map((t) => {
-        const sel = t.id === active;
+    switch (tab) {
+      case "OVERVIEW":
         return (
-          <button
-            key={t.id} id={`tab-${t.id}`} role="tab" aria-selected={sel} aria-controls={`panel-${t.id}`}
-            tabIndex={sel ? 0 : -1}
-            onClick={() => onChange(t.id)}
-            onKeyDown={(e) => {
-              const i = TABS.findIndex((x) => x.id === active);
-              if (e.key === 'ArrowRight') onChange(TABS[(i + 1) % TABS.length].id);
-              if (e.key === 'ArrowLeft') onChange(TABS[(i - 1 + TABS.length) % TABS.length].id);
-            }}
-            className={cn(
-              'pressable min-h-[44px] shrink-0 snap-start rounded-xl px-3.5 font-mono text-[12px] font-semibold uppercase tracking-wider transition-colors',
-              sel ? 'bg-[#ff5a1f] text-white shadow-[0_4px_16px_rgba(255,90,31,0.4)]' : 'text-[#a7a29a] active:bg-white/5',
-            )}
-          >
-            {t.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ---------------- swipe area ----------------
-function SwipeArea({ active, onChange, content }: { active: TabId; onChange: (t: TabId) => void; content: React.ReactNode }) {
-  const x0 = useRef<number | null>(null);
-  return (
-    <div
-      onTouchStart={(e) => {
-        const t = e.target as HTMLElement;
-        if (t.closest('table, .snap-row, [data-noswipe], a, button')) { x0.current = null; return; }
-        x0.current = e.touches[0].clientX;
-      }}
-      onTouchEnd={(e) => {
-        if (x0.current == null) return;
-        const dx = e.changedTouches[0].clientX - x0.current;
-        x0.current = null;
-        if (Math.abs(dx) < 64) return;
-        const i = TABS.findIndex((x) => x.id === active);
-        const next = dx < 0 ? i + 1 : i - 1;
-        if (next >= 0 && next < TABS.length) onChange(TABS[next].id);
-      }}
-    >
-      {content}
-    </div>
-  );
-}
-
-// ---------------- OVERVIEW ----------------
-function OverviewTab({ s, onEvidence }: { s: DashboardSession; onEvidence: (e: MetricEvidence) => void }) {
-  const [flagsOpen, setFlagsOpen] = useState<number | null>(null);
-  const [memoOpen, setMemoOpen] = useState(false);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        {s.kpis.map((k, i) => (
-          <button
-            key={k.metric}
-            onClick={() => onEvidence(k)}
-            className="card-dark pressable p-3.5 text-left anim-rise"
-            style={{ animationDelay: `${i * 0.06}s` }}
-            aria-label={`${k.metric}: ${k.displayValue}. Open evidence.`}
-          >
-            <p className="mono-label !text-[10px] text-[#a7a29a]">{k.metric}</p>
-            <p className="num mt-1 text-[20px] font-semibold text-white">{k.displayValue}</p>
-            <p className="mt-1 font-mono text-[10px] text-[#34d399]">◉ receipt ↓</p>
-          </button>
-        ))}
-      </div>
-
-      <section className="card-dark p-4" aria-label="Revenue versus net income">
-        <h2 className="font-display text-[17px] font-semibold text-white">Revenue vs Net Income</h2>
-        <p className="mono-label mt-0.5 text-[#6b675c]">SEC EDGAR · audited</p>
-        <div className="mt-3" data-noswipe><RevenueChart data={s.revenueSeries} /></div>
-      </section>
-
-      <section aria-label="Macro context">
-        <div className="snap-row">
-          {s.macro.map((m) => (
-            <span key={m} className="flex min-h-[44px] shrink-0 items-center rounded-full border border-white/12 bg-white/[0.04] px-3.5 font-mono text-[11px] text-[#d7d3c8]">{m}</span>
-          ))}
-        </div>
-      </section>
-
-      <section className="card-dark p-4" aria-label="Red flags">
-        <h2 className="font-display text-[17px] font-semibold text-white">Red Flags</h2>
-        <div className="mt-2 space-y-2">
-          {s.redFlags.map((f, i) => {
-            const open = flagsOpen === i;
-            const sev = f.severity === 'High' ? 'text-[#f87171] border-[#f87171]/40 bg-[#f87171]/10'
-              : f.severity === 'Medium' ? 'text-[#fbbf24] border-[#fbbf24]/40 bg-[#fbbf24]/10'
-              : 'text-[#7ab8ff] border-[#7ab8ff]/40 bg-[#7ab8ff]/10';
-            return (
-              <div key={f.title} className="overflow-hidden rounded-xl border border-white/10">
-                <button onClick={() => setFlagsOpen(open ? null : i)} aria-expanded={open} className="flex min-h-[52px] w-full items-center gap-2.5 bg-black/30 px-3 text-left">
-                  <TriangleAlert size={16} className={f.severity === 'High' ? 'text-[#f87171]' : f.severity === 'Medium' ? 'text-[#fbbf24]' : 'text-[#7ab8ff]'} />
-                  <span className="flex-1 text-[14px] font-medium text-white">{f.title}</span>
-                  <span className={cn('rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase', sev)}>{f.severity}</span>
-                  <ChevronDown size={16} className={cn('text-[#6b675c] transition-transform', open && 'rotate-180')} />
-                </button>
-                {open && <p className="anim-fade bg-black/30 px-3 pb-3 text-[13px] leading-6 text-[#a7a29a]">{f.body}</p>}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section aria-label="Forensic scores">
-        <div className="snap-row">
-          {s.forensics.map((f) => (
-            <div key={f.name} className="card-dark w-[220px] p-4">
-              <div className="flex items-center justify-between">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ff5a1f]/15 font-display text-[19px] font-bold text-[#ff8a3d]">{f.short}</span>
-                <span className={cn('font-mono text-[10px] uppercase tracking-wider', f.verdict === 'strong' ? 'text-[#34d399]' : f.verdict === 'neutral' ? 'text-[#fbbf24]' : 'text-[#f87171]')}>
-                  ● {f.verdict}
-                </span>
-              </div>
-              <p className="mt-2.5 font-display text-[15px] font-semibold text-white">{f.name}</p>
-              <p className="num text-[22px] font-semibold text-white">{f.display}</p>
-              <p className="mt-1 text-[12px] leading-5 text-[#a7a29a]">{f.meaning}</p>
+          <div className="space-y-14">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              {data.kpis.map((kpi) => (
+                <KPICard
+                  key={kpi.id}
+                  label={kpi.label}
+                  value={kpi.value}
+                  delta={kpi.change?.value}
+                  deltaTone={kpi.change?.direction === "up" ? "pos" : kpi.change?.direction === "down" ? "neg" : "neutral"}
+                  highlighted={kpi.id === "fcf"}
+                  onInspect={() => setEvidenceMetric(kpi.label)}
+                />
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
 
-      <section className="card-dark p-4" aria-label="Executive analysis">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-[17px] font-semibold text-white">Executive Analysis</h2>
-          <span className="mono-label text-[#ff8a3d]">Finora AI</span>
-        </div>
-        <div className={cn('memo-md mt-2 overflow-hidden', !memoOpen && 'max-h-[190px] [mask-image:linear-gradient(to_bottom,black_60%,transparent)]')}>
-          <ReactMarkdown>{s.memo}</ReactMarkdown>
-        </div>
-        <button onClick={() => setMemoOpen(!memoOpen)} aria-expanded={memoOpen} className="pressable mt-2 min-h-[44px] w-full rounded-xl border border-white/10 bg-white/[0.03] text-[13px] font-semibold text-[#ffb25c]">
-          {memoOpen ? 'Show less' : 'Read full analysis'}
-        </button>
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {s.watchTags.map((t) => (
-            <span key={t} className="rounded-full border border-[#fbbf24]/30 bg-[#fbbf24]/[0.07] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[#fbbf24]">◷ {t}</span>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
+            <FinancialChart data={data.charts.revenue.map((d) => ({ year: d.label, revenue: d.value, netIncome: data.charts.net_income.find((n) => n.label === d.label)?.value || 0 }))} />
 
-// ---------------- metric rows (growth / profit) ----------------
-function MetricList({ metrics, onEvidence }: { metrics: MetricEvidence[]; onEvidence: (e: MetricEvidence) => void }) {
-  const [open, setOpen] = useState<string | null>(null);
-  return (
-    <div className="space-y-2.5">
-      {metrics.map((m) => (
-        <MetricRow key={m.metric} m={m} isOpen={open === m.metric}
-          onToggle={() => setOpen(open === m.metric ? null : m.metric)} onEvidence={onEvidence} />
-      ))}
-      <p className="pt-1 text-center font-mono text-[10px] uppercase tracking-[0.1em] text-[#6b675c]">Double-tap a row for instant receipt</p>
-    </div>
-  );
-}
+            {/* Macro Context Strip */}
+            <MacroStrip macro={data.macro_context} />
 
-function MetricRow({ m, isOpen, onToggle, onEvidence }: {
-  m: MetricEvidence; isOpen: boolean; onToggle: () => void; onEvidence: (e: MetricEvidence) => void;
-}) {
-  const vals = useMemo(() => [0.7, 0.85, 1].map((f) => Math.abs(m.value ?? 1) * f), [m.value]);
-  return (
-    <div className="card-dark overflow-hidden">
-            <button
-              onClick={onToggle}
-              onDoubleClick={() => onEvidence(m)}
-              aria-expanded={isOpen}
-              className="pressable flex min-h-[64px] w-full items-center gap-3 p-3.5 text-left"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-medium text-white">{m.metric}</span>
-                <span className="num mt-0.5 block text-[17px] font-semibold text-white">{m.displayValue}</span>
-              </span>
-              <Sparkline values={vals} />
-              <ChevronDown size={17} className={cn('shrink-0 text-[#6b675c] transition-transform', isOpen && 'rotate-180')} />
-            </button>
-            {isOpen && (
-              <div className="anim-fade border-t border-white/[0.07] p-3.5 pt-3">
-                <p className="num text-[12px] text-[#ffb25c]">{m.formula}</p>
-                <div className="mt-2" data-noswipe><TrendChart values={vals} labels={['', '', '']} /></div>
-                <button onClick={() => onEvidence(m)} className="pressable mt-2.5 flex min-h-[48px] w-full items-center justify-center gap-1.5 rounded-xl border border-[#ff5a1f]/40 bg-[#ff5a1f]/10 text-[13px] font-semibold text-[#ff8a3d]">
-                  <BadgeCheck size={15} /> Open full evidence receipt
-                </button>
-              </div>
-            )}
-          </div>
-  );
-}
+            {/* Red Flags / Watch Items */}
+            <RedFlagList
+              flags={(data.watch_items || []).concat(
+                (data.executive_summary?.watch_items || []).map((w, i) => ({
+                  id: `exec-${i}`,
+                  title: w.tag || "WATCH",
+                  headline: w.text,
+                  reason: w.text,
+                  severity: w.tag === "RISK" ? "high" : "medium",
+                  tag: w.tag || "WATCH",
+                  evidence: {},
+                }))
+              )}
+              onInspect={setEvidenceMetric}
+            />
 
-// ---------------- valuation ----------------
-function ValuationTab({ s, onEvidence }: { s: DashboardSession; onEvidence: (e: MetricEvidence) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {s.valuation.map((v) => (
-        <div key={v.metric} className="card-dark p-3.5">
-          <p className="mono-label !text-[10px] text-[#a7a29a]">{v.metric}</p>
-          {v.value == null && v.unavailableReason ? (
-            <div className="mt-1.5"><UnavailableMetric reason={v.unavailableReason} /></div>
-          ) : (
-            <button onClick={() => onEvidence(v)} className="pressable block w-full text-left" aria-label={`${v.metric}: ${v.displayValue}. Open evidence.`}>
-              <p className="num mt-1 text-[19px] font-semibold text-white">{v.displayValue}</p>
-              <p className="num mt-1 line-clamp-2 text-[11px] leading-4 text-[#ffb25c]">{v.formula}</p>
-              <p className="mt-1.5 font-mono text-[10px] text-[#34d399]">◉ receipt ↓</p>
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
+            {/* Forensic Score Cards */}
+            <ForensicCards scores={data.forensic_scores || {}} onInspect={setEvidenceMetric} />
 
-// ---------------- forensics ----------------
-function ForensicsTab({ s }: { s: DashboardSession }) {
-  return (
-    <div className="space-y-3">
-      {s.forensics.map((f, idx) => (
-        <article key={f.name} className="card-dark p-4 anim-rise" style={{ animationDelay: `${idx * 0.07}s` }}>
-          <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff5a1f]/15 font-display text-[21px] font-bold text-[#ff8a3d]">{f.short}</span>
-            <div>
-              <h2 className="font-display text-[16px] font-semibold text-white">{f.name}</h2>
-              <p className={cn('font-mono text-[11px] uppercase tracking-wider', f.verdict === 'strong' ? 'text-[#34d399]' : f.verdict === 'neutral' ? 'text-[#fbbf24]' : 'text-[#f87171]')}>
-                ● {f.verdict} · {f.display}
-              </p>
-            </div>
-          </div>
-          <p className="mt-2.5 text-[14px] leading-6 text-[#d7d3c8]">{f.meaning}</p>
-
-          {f.short === 'Z' && (
-            <div className="mt-3" role="img" aria-label={`Altman Z ${f.display}: safe zone above 2.99`}>
-              <div className="relative h-2.5 overflow-hidden rounded-full bg-gradient-to-r from-[#f87171] via-[#fbbf24] to-[#34d399]">
-                <span className="absolute top-[-2px] h-[14px] w-[3px] rounded bg-white shadow" style={{ left: `${Math.min(96, (f.value / 5) * 100)}%` }} />
-              </div>
-              <div className="mt-1 flex justify-between font-mono text-[10px] text-[#6b675c]"><span>distress &lt;1.8</span><span>grey</span><span>safe &gt;2.99</span></div>
-            </div>
-          )}
-          {f.short === 'M' && (
-            <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
-              <div className="flex justify-between font-mono text-[11px]"><span className="text-[#6b675c]">threshold −1.78</span><span className="num text-[#34d399]">{f.display} · below = clean</span></div>
-              <ProgressBar value={Math.min(100, Math.abs(f.value) * 30)} className="mt-2" />
-            </div>
-          )}
-
-          <ul className="mt-3 space-y-1.5">
-            {f.detail.map((d) => (
-              <li key={d} className="flex items-center gap-2 rounded-lg bg-black/30 px-2.5 py-2 font-mono text-[11.5px] text-[#d7d3c8]">
-                <span className={d.includes('✗') ? 'text-[#f87171]' : 'text-[#34d399]'}>{d.includes('✗') ? '✗' : '✓'}</span>
-                {d.replace(' ✓', '').replace(' ✗', '')}
-              </li>
-            ))}
-          </ul>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-// ---------------- sources ----------------
-function SourcesTab({ s, mismatchOnly }: { s: DashboardSession; mismatchOnly: boolean }) {
-  const [filter, setFilter] = useState<'ALL' | 'PRIMARY' | 'OFFICIAL' | 'CORROBORATING'>(mismatchOnly ? 'ALL' : 'ALL');
-  const list = s.sources.filter((x) => (filter === 'ALL' || x.tier === filter) && (!mismatchOnly || x.mismatch));
-  return (
-    <div>
-      <div className="snap-row mb-3" role="group" aria-label="Filter sources by tier">
-        {(['ALL', 'PRIMARY', 'OFFICIAL', 'CORROBORATING'] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            aria-pressed={filter === f}
-            className={cn(
-              'pressable min-h-[44px] shrink-0 rounded-full border px-4 font-mono text-[11px] font-semibold tracking-wider',
-              filter === f ? 'border-[#ff5a1f] bg-[#ff5a1f] text-white' : 'border-white/12 bg-white/[0.04] text-[#a7a29a]',
-            )}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-      {mismatchOnly && <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-[#fbbf24]">Showing mismatches only</p>}
-      <div className="space-y-2.5">
-        {list.length === 0 && <p className="py-8 text-center text-sm text-[#a7a29a]">No sources match this filter.</p>}
-        {list.map((src) => (
-          <article key={src.id} className="card-dark p-3.5" style={src.mismatch ? { borderColor: 'rgba(251,191,36,0.45)' } : undefined}>
-            <div className="flex items-center justify-between gap-2">
-              <TierBadge tier={src.tier} />
-              <span className={cn('flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider', src.verified ? 'text-[#34d399]' : 'text-[#fbbf24]')}>
-                {src.verified ? <BadgeCheck size={13} /> : <TriangleAlert size={13} />}
-                {src.verified ? 'verified' : 'mismatch'}
-              </span>
-            </div>
-            <h3 className="mt-2 font-display text-[15px] font-semibold text-white">{src.name}</h3>
-            <p className="mt-0.5 text-[13px] leading-5 text-[#a7a29a]">{src.note}</p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <span className="num min-w-0 flex-1 truncate rounded-lg bg-black/40 px-2.5 py-2 text-[11px] text-[#6b675c]">{src.url}</span>
-              <a href={src.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${src.name} in a new tab`}
-                className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] text-white">
-                <ExternalLink size={16} />
-              </a>
-              <button aria-label="Share source"
-                onClick={async () => {
-                  try {
-                    if (navigator.share) await navigator.share({ title: src.name, url: src.url });
-                    else { await navigator.clipboard.writeText(src.url); }
-                  } catch { /* dismissed */ }
+            {data.executive_summary && (
+              <ExecutiveAnalysis
+                analysis={{
+                  paragraphs: [data.executive_summary.executive_overview],
+                  highlights: data.executive_summary.highlights.map((h) => h.title),
+                  watch: data.executive_summary.watch_items.map((w) => ({
+                    tag: (w.tag as "WATCH" | "STRENGTH" | "RISK") || "WATCH",
+                    text: w.text,
+                  })),
+                  the_read: (data.executive_summary as Record<string, unknown>).the_read as string || undefined,
+                  annotations: (data.executive_summary as Record<string, unknown>).annotations as Array<{tag: string; text: string}> || undefined,
                 }}
-                className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] text-white">
-                <Share2 size={16} />
-              </button>
-            </div>
-          </article>
-        ))}
+                onAskFollowUp={() => setEvidenceMetric("ask_finora")}
+              />
+            )}
+          </div>
+        );
+      case "INCOME STATEMENT":
+        return (
+          <StatementTable
+            title="Income Statement"
+            unitLabel="USD, except per-share"
+            years={data.periods}
+            rows={data.income_statement.rows.map((r) => ({
+              label: r.label,
+              values: r.values.map((v) => {
+                const num = parseFloat(v.replace(/[$,BMT%—]/g, ""));
+                return isNaN(num) ? null : num;
+              }),
+              isTotal: r.strong,
+            }))}
+            onInspect={setEvidenceMetric}
+          />
+        );
+      case "BALANCE SHEET":
+        return (
+          <StatementTable
+            title="Balance Sheet"
+            unitLabel="USD"
+            years={data.periods}
+            rows={data.balance_sheet.rows.map((r) => ({
+              label: r.label,
+              values: r.values.map((v) => {
+                const num = parseFloat(v.replace(/[$,BMT%—]/g, ""));
+                return isNaN(num) ? null : num;
+              }),
+              isTotal: r.strong,
+            }))}
+            onInspect={setEvidenceMetric}
+          />
+        );
+      case "CASH FLOW":
+        return (
+          <StatementTable
+            title="Cash Flow Statement"
+            unitLabel="USD"
+            years={data.periods}
+            rows={data.cash_flow.rows.map((r) => ({
+              label: r.label,
+              values: r.values.map((v) => {
+                const num = parseFloat(v.replace(/[$,BMT%—]/g, ""));
+                return isNaN(num) ? null : num;
+              }),
+              isTotal: r.strong,
+            }))}
+            onInspect={setEvidenceMetric}
+          />
+        );
+      case "GROWTH":
+        return (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {data.growth.rows.map((g) => (
+              <div key={g.label} className="border border-ink/20 bg-paper p-5">
+                <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{g.label}</span>
+                <div className="mt-2 font-mono text-2xl font-bold tabular">
+                  {g.values[g.values.length - 1] || "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      case "PROFITABILITY":
+        return (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {data.profitability.map((p) => (
+              <div key={p.metric} className="border border-ink/20 bg-paper p-5">
+                <span className="font-mono text-[10px] font-semibold tracking-[0.15em] text-ink-3 uppercase">{p.metric}</span>
+                <div className="mt-2 font-mono text-2xl font-bold text-ink tabular">{p.value}</div>
+              </div>
+            ))}
+          </div>
+        );
+      case "VALUATION": {
+        const metricsMap = Object.fromEntries(data.valuation.metrics.map((m) => [m.metric_id, m]));
+        const priceVal = data.valuation.market_data.price?.toFixed(2) || metricsMap["share_price"]?.display_value || "—";
+        const mcVal = metricsMap["market_cap"]?.display_value || "—";
+        const evVal = metricsMap["enterprise_value"]?.display_value || "—";
+        const skipIds = new Set(["share_price", "market_cap", "enterprise_value"]);
+        return <ValuationGrid valuation={{
+          price: `$${priceVal.replace(/^\$/, "")}`,
+          marketCap: mcVal,
+          enterpriseValue: evVal,
+          multiples: data.valuation.metrics
+            .filter((m) => !skipIds.has(m.metric_id))
+            .map((m) => ({
+              label: m.name,
+              value: m.display_value,
+              unavailable: m.status === "unavailable",
+              note: m.reason,
+            })),
+        }} />;
+      }
+      case "FORENSICS":
+        return (
+          <div className="space-y-10">
+            <ForensicCards scores={data.forensic_scores || {}} onInspect={setEvidenceMetric} />
+            <RedFlagList
+              flags={(data.watch_items || [])}
+              onInspect={setEvidenceMetric}
+            />
+            <MacroStrip macro={data.macro_context} />
+          </div>
+        );
+      case "SOURCES":
+        return <SourceLedger sources={data.sources.map((s) => ({
+          id: s.id,
+          name: s.name,
+          trust: s.trust_tier === 1 ? "PRIMARY" : s.trust_tier === 2 ? "OFFICIAL" : "CORROBORATING",
+          period: s.period,
+          usedFor: s.meta,
+          status: s.status.toUpperCase() as "VERIFIED" | "CROSS-VERIFIED",
+        }))} />;
+      default:
+        return null;
+    }
+  }, [tab, data]);
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center px-4">
+        <div className="text-center">
+          <Loader2 size={32} className="mx-auto animate-spin text-ink-3" />
+          <p className="mt-4 font-mono text-sm text-ink-3">Loading research data...</p>
+        </div>
       </div>
-      <div className="mt-4 flex items-center justify-center gap-2 pb-2">
-        <Download size={13} className="text-[#6b675c]" />
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#6b675c]">Ledger: {s.sources.length} sources · {s.quality.crossVerified} cross-verified</p>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center">
+        <EditorialHeading size="md">
+          <HighlightText>Something went wrong.</HighlightText>
+        </EditorialHeading>
+        <p className="mt-4 text-sm text-ink-2">{error}</p>
+        <button
+          onClick={() => navigate("/research")}
+          className="mt-6 border-2 border-ink bg-paper px-6 py-3 font-mono text-xs font-bold tracking-wider uppercase transition-colors hover:bg-ink hover:text-paper"
+        >
+          Start New Research
+        </button>
       </div>
+    );
+  }
+
+  // No session — direct to research
+  if (!sessionId || !data) {
+    return (
+      <div className="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-10">
+        <div className="border-2 border-ink/20 bg-paper p-8 text-center">
+          <p className="text-ink-2">Run a research analysis to see the full dashboard.</p>
+          <button
+            onClick={() => navigate("/research")}
+            className="mt-4 border-2 border-ink bg-paper px-6 py-3 font-mono text-xs font-bold tracking-wider uppercase transition-colors hover:bg-ink hover:text-paper"
+          >
+            Start Research
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 lg:px-10">
+      <CompanyHeader company={{
+          ticker: data.company.ticker,
+          name: data.company.name,
+          exchange: data.company.exchange,
+          sector: data.company.period,
+          fiscalYear: data.company.period,
+          price: data.valuation.market_data.price || 0,
+          priceChange: data.valuation.market_data.percent_change || 0,
+          sessionId: sessionId || undefined,
+          description: (data.company as Record<string, unknown>).description as string || undefined,
+          industry: (data.company as Record<string, unknown>).industry as string || undefined,
+        }} />
+
+      <div className="my-8">
+        <ResearchQualityBar quality={{
+          sourceType: data.data_quality.primary_source,
+          metrics: data.data_quality.metrics_calculated,
+          sources: data.data_quality.sources_count,
+          crossVerified: data.data_quality.cross_verified,
+          mismatches: data.data_quality.mismatches,
+        }} />
+      </div>
+
+      <DashboardTabs active={tab} onChange={setTab} />
+
+      <div className="pt-10 pb-24">{tabContent}</div>
+
+      <EvidenceDrawer metric={evidenceMetric} data={data} onClose={() => setEvidenceMetric(null)} />
+      <AskFinoraDrawer sessionId={sessionId} />
     </div>
   );
 }
-
-// keep tree-shaken lazy import referenced for future tab splitting
-void Suspense;
-void lazy;

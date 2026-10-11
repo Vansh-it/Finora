@@ -1,214 +1,266 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import {
-  Bell, Check, ChevronRight, FileText, LogOut, Pencil, ShieldCheck, Star, X, Zap,
-} from 'lucide-react';
-import { getHistory, getUsage, signOutUser, updateProfile } from '../lib/api';
-import { clearSession, getUser } from '../lib/auth';
-import { ConfirmSheet } from '../components/BottomSheet';
-import { Button, ProgressBar, Skeleton, TickerChip } from '../components/ui';
-import { PixelAvatar } from '../components/PixelAvatar';
-import { formatDate } from '../lib/format';
-import { useCachedQuery } from '../hooks/hooks';
-import { useToast } from '../hooks/toast';
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
+import EditorialHeading from "../components/EditorialHeading";
+import HighlightText from "../components/HighlightText";
+import PaperTexture from "../components/PaperTexture";
+import { getToken, removeToken } from "../lib/auth";
 
-// Account + preferences entries. Kept as data so the rows stay consistent.
-const ACCOUNT_ROWS = [
-  { label: 'About Finora', sub: 'What Finora is and how it works', to: '/about', icon: FileText },
-  { label: 'Methodology', sub: 'How every number is verified', to: '/methodology', icon: ShieldCheck },
-  { label: 'Reviews', sub: 'See what other researchers say', to: '/reviews', icon: Star },
-  { label: 'Terms of Service', sub: 'The rules of the road', to: '/terms', icon: FileText },
-  { label: 'Privacy Policy', sub: 'How your data is handled', to: '/privacy', icon: ShieldCheck },
-] as const;
+interface ProfileData {
+  user: {
+    user_id: string;
+    email: string;
+    name: string;
+    research_runs_used: number;
+    research_runs_limit: number;
+  };
+  completed_researches: number;
+  usage: {
+    used: number;
+    limit: number;
+    remaining: number;
+  };
+}
 
-export function ProfilePage() {
-  const nav = useNavigate();
-  const toast = useToast();
-  const user = getUser();
-  const usage = useCachedQuery('usage', async () => getUsage());
-  const hist = useCachedQuery('history', async () => getHistory());
+interface ResearchEntry {
+  session_id: string;
+  company: string;
+  ticker: string;
+  period: string;
+  created_at: string;
+  headline: string;
+  status: string;
+}
 
+export default function ProfilePage() {
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [researches, setResearches] = useState<ResearchEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(user?.name ?? '');
+  const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
-  const [confirmOut, setConfirmOut] = useState(false);
-  const [displayName, setDisplayName] = useState(user?.name ?? '');
-  const [alerts, setAlerts] = useState(false);
 
-  // Deterministic identity seed — the same account always draws the same character.
-  const seed = user?.email ?? user?.name ?? 'finora';
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      navigate("/auth", { state: { from: "/profile" } });
+      return;
+    }
 
-  const save = async () => {
-    const prev = displayName;
-    setDisplayName(name.trim());
-    setEditing(false);
+    fetch("/api/auth/profile", { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          removeToken();
+          navigate("/auth", { state: { from: "/profile" } });
+          return null;
+        }
+        return res.json();
+      })
+      .then((profileData) => {
+        if (!profileData) return;
+        setProfile(profileData);
+        setNameValue(profileData.user?.name || "");
+        // Fetch history separately
+        return fetch("/api/research/history", { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => (r.ok ? r.json() : { researches: [] }))
+          .then((historyData) => {
+            setResearches((historyData.researches || []).slice(0, 3));
+            setLoading(false);
+          });
+      })
+      .catch(() => setLoading(false));
+  }, [navigate]);
+
+  async function handleSave() {
+    const token = getToken();
+    if (!token) return;
     setSaving(true);
     try {
-      const r = await updateProfile(name);
-      setDisplayName(r.name);
-      toast('Name updated');
-    } catch (e) {
-      setDisplayName(prev);
-      setName(prev);
-      toast(e instanceof Error ? e.message : 'Update failed', 'warn');
+      await fetch("/api/auth/update-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },                body: JSON.stringify({ name: nameValue }),
+      });
+      if (profile) {
+        setProfile({
+          ...profile,
+          user: { ...profile.user, name: nameValue },
+        });
+      }
+      setEditing(false);
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const signOut = () => {
-    clearSession();
-    void signOutUser();
-    nav('/', { replace: true });
-    toast('Signed out', 'info');
-  };
-
-  const toggleAlerts = async () => {
-    if (!alerts && 'Notification' in window && Notification.permission === 'default') {
-      try { await Notification.requestPermission(); } catch { /* ignore */ }
+  function handleSignOut() {
+    const token = getToken();
+    if (token) {
+      fetch("/api/auth/signout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
     }
-    setAlerts((v) => !v);
-  };
+    removeToken();
+    navigate("/");
+  }
 
-  const recent = hist.data?.slice(0, 3) ?? [];
+  function formatDate(iso: string): string {
+    try {
+      return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    } catch {
+      return "";
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center px-4">
+        <div className="text-center">
+          <div className="inline-block h-6 w-6 animate-spin border-2 border-ink border-t-transparent" />
+          <p className="mt-4 font-mono text-sm text-ink-3">Loading profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center">
+        <p className="text-ink-2">Please sign in to view your profile.</p>
+        <Link to="/auth" className="mt-4 inline-block border-2 border-ink bg-paper px-6 py-3 font-mono text-xs font-bold tracking-wider uppercase">
+          Sign In
+        </Link>
+      </div>
+    );
+  }
+
+  const user = profile.user;
+  const usage = profile.usage;
+  const usagePct = usage.limit > 0 ? (usage.used / usage.limit) * 100 : 0;
 
   return (
-    <div className="grid-glow px-5 pb-10 pt-6">
-      {/* Identity */}
-      <div className="card-dark anim-rise relative overflow-hidden p-5">
-        <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-[#ff5a1f]/10 blur-2xl" aria-hidden />
-        <div className="relative flex items-center gap-4">
-          <PixelAvatar seed={seed} size={72} className="shrink-0" />
-          <div className="min-w-0 flex-1">
-            {editing ? (
-              <div className="flex items-center gap-1.5">
-                <input
-                  aria-label="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoFocus
-                  className="min-h-[48px] w-full rounded-xl border border-[#ff5a1f]/60 bg-black/40 px-3 text-[16px] text-white outline-none"
-                />
-                <button onClick={save} disabled={saving} aria-label="Save name" className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#34d399] text-black disabled:opacity-50">
-                  <Check size={18} />
-                </button>
-                <button onClick={() => { setEditing(false); setName(displayName); }} aria-label="Cancel editing" className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 text-white">
-                  <X size={18} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <h1 className="truncate font-display text-[21px] font-bold text-white">{displayName || 'Researcher'}</h1>
-                <button onClick={() => setEditing(true)} aria-label="Edit name" className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#a7a29a]">
-                  <Pencil size={17} />
-                </button>
-              </div>
+    <div>
+      <section className="relative border-b border-ink/15">
+        <PaperTexture />
+        <div className="mx-auto max-w-3xl px-4 py-20 sm:px-6 lg:px-0">
+          <p className="mb-4 font-mono text-xs font-semibold tracking-[0.3em] text-ink-3 uppercase">Profile</p>
+          <EditorialHeading size="md">
+            Your
+            <br />
+            <HighlightText>account.</HighlightText>
+          </EditorialHeading>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-0">
+        {/* Profile Info */}
+        <div className="border border-ink/20 bg-paper p-6 sm:p-8">
+          <div className="flex items-start justify-between">
+            <h3 className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Profile</h3>
+            {!editing && (
+              <button
+                onClick={() => setEditing(true)}
+                className="font-mono text-xs font-semibold tracking-wider text-annotate-blue uppercase hover:text-ink"
+              >
+                Edit
+              </button>
             )}
-            <p className="truncate text-[13px] text-[#a7a29a]">{user?.email}</p>
-            <span className="mono-label mt-2 inline-flex items-center gap-1 rounded-md border border-[#34d399]/40 bg-[#34d399]/10 px-2 py-0.5 text-[10px] text-[#34d399]">
-              <Zap size={11} /> Free tier
-            </span>
           </div>
-        </div>
-      </div>
 
-      {/* Usage */}
-      <div className="card-dark anim-rise stagger-1 mt-3 p-4">
-        <div className="flex items-center justify-between">
-          <p className="mono-label text-[#6b675c]">Research usage</p>
-          <span className="mono-label text-[#6b675c]">Resets every 24h</span>
-        </div>
-        {usage.data ? (
-          <>
-            <p className="mt-1.5 text-[14px] text-[#a7a29a]">
-              <span className="num text-[24px] font-semibold text-white">{usage.data.remaining}</span> of {usage.data.limit} researches left today
-            </p>
-            <ProgressBar value={usage.data.used} max={usage.data.limit} className="mt-2.5" />
-          </>
-        ) : (
-          <Skeleton className="mt-3 h-8 w-full" />
-        )}
-      </div>
+          {editing ? (
+            <div className="mt-6 space-y-4">
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold tracking-widest text-ink-3 uppercase">Name</label>
+                <input
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  className="w-full border border-ink/25 bg-paper px-4 py-3 font-mono text-sm text-ink focus:border-ink focus:outline-none"
+                />
+              </div>
 
-      {/* Latest researches */}
-      <div className="anim-rise stagger-2 mt-6">
-        {/* items-center keeps the label and "View all" on one line; -my-2 cancels
-            the 44px tap target's height so it doesn't open a gap under the label. */}
-        <div className="mb-3 flex items-center justify-between">
-          <p className="mono-label text-[#6b675c]">Latest researches</p>
-          <Link to="/history" className="-my-2 pressable flex min-h-[44px] items-center gap-0.5 font-mono text-[11px] tracking-wider text-[#ff8a3d]">
-            View all <ChevronRight size={13} />
-          </Link>
-        </div>
-        <div className="space-y-2.5">
-          {hist.loading && !hist.data && [0, 1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
-          {!hist.loading && recent.length === 0 && (
-            <div className="card-dark p-4 text-center">
-              <p className="text-[14px] text-[#a7a29a]">No researches yet.</p>
-              <Link to="/research" className="pressable mt-2 inline-flex min-h-[44px] items-center font-display text-[14px] font-semibold text-[#ff8a3d]">
-                Start your first research
-              </Link>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="border-2 border-ink bg-ink px-6 py-2 font-mono text-xs font-bold tracking-wider text-paper uppercase transition-colors hover:bg-ink-2 disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="border-2 border-ink bg-paper px-6 py-2 font-mono text-xs font-bold tracking-wider text-ink uppercase transition-colors hover:bg-paper-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 space-y-3 font-mono text-sm">
+              <div className="flex justify-between border-b border-ink/10 py-2">
+                <span className="text-ink-3">Name</span>
+                <span className="font-semibold text-ink">{user.name || "—"}</span>
+              </div>
+              <div className="flex justify-between border-b border-ink/10 py-2">
+                <span className="text-ink-3">Email</span>
+                <span className="text-ink">{user.email}</span>
+              </div>
+
             </div>
           )}
-          {recent.map((h) => (
-            <Link key={h.sessionId} to={`/dashboard?session_id=${h.sessionId}`} className="card-dark pressable flex items-center gap-3 p-3.5">
-              <TickerChip ticker={h.ticker} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-medium text-white">{h.company}</p>
-                {h.date && <p className="truncate font-mono text-[11px] text-[#6b675c]">{formatDate(h.date)}{h.period ? ` · ${h.period}` : ''}</p>}
-              </div>
-              <ChevronRight size={16} className="shrink-0 text-[#6b675c]" />
-            </Link>
-          ))}
         </div>
-      </div>
 
-      {/* Account */}
-      <div className="anim-rise stagger-3 mt-6">
-        <p className="mono-label mb-2 text-[#6b675c]">Account</p>
-        <div className="overflow-hidden rounded-2xl border border-white/10">
-          {ACCOUNT_ROWS.map((r) => (
-            <Link key={r.to} to={r.to} className="pressable flex min-h-[60px] items-center gap-3 border-b border-white/[0.06] bg-[#14151a] px-4 last:border-0">
-              <r.icon size={18} className="shrink-0 text-[#ff8a3d]" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[15px] font-medium text-white">{r.label}</p>
-                <p className="truncate text-[12px] text-[#6b675c]">{r.sub}</p>
-              </div>
-              <ChevronRight size={17} className="shrink-0 text-[#6b675c]" />
-            </Link>
-          ))}
+        {/* Research Usage */}
+        <div className="mt-8 border border-ink/20 bg-paper p-6 sm:p-8">
+          <h3 className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Research Usage</h3>
+          <div className="mt-6">
+            <div className="flex items-baseline justify-between">
+              <span className="font-mono text-3xl font-bold text-ink">{usage.used}</span>
+              <span className="font-mono text-sm text-ink-3">of {usage.limit} researches</span>
+            </div>
+            <div className="mt-3 h-1.5 bg-ink/10">
+              <div className="h-full bg-ink transition-all duration-500" style={{ width: `${usagePct}%` }} />
+            </div>
+            <p className="mt-2 font-mono text-xs text-ink-3">{usage.remaining} remaining</p>
+          </div>
         </div>
-      </div>
 
-      {/* Preferences */}
-      <div className="anim-rise stagger-3 mt-6">
-        <p className="mono-label mb-2 text-[#6b675c]">Preferences</p>
-        <div className="overflow-hidden rounded-2xl border border-white/10">
+        {/* Recent Research */}
+        {researches.length > 0 && (
+          <div className="mt-8 border border-ink/20 bg-paper p-6 sm:p-8">
+            <h3 className="font-mono text-xs font-semibold tracking-[0.2em] text-ink-3 uppercase">Recent Research</h3>
+            <div className="mt-6 space-y-4">
+              {researches.map((r) => (
+                <button
+                  key={r.session_id}
+                  onClick={() => navigate(`/dashboard?session_id=${r.session_id}`)}
+                  className="group flex w-full items-center justify-between border-b border-ink/10 py-3 text-left last:border-0"
+                >
+                  <div>
+                    <span className="font-serif text-sm font-semibold text-ink">{r.company}</span>
+                    {r.ticker && <span className="ml-2 font-mono text-xs text-ink-3">{r.ticker}</span>}
+                    <p className="mt-0.5 font-mono text-[10px] text-ink-3">
+                      {r.period && <>{r.period} · </>}
+                      {formatDate(r.created_at)}
+                    </p>
+                  </div>
+                  <ArrowRight size={14} className="text-ink-3 transition-colors group-hover:text-ink" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sign Out */}
+        <div className="mt-8">
           <button
-            onClick={toggleAlerts}
-            aria-pressed={alerts}
-            className="pressable flex min-h-[60px] w-full items-center gap-3 border-b border-white/[0.06] bg-[#14151a] px-4 text-left last:border-0"
+            onClick={handleSignOut}
+            className="w-full border-2 border-ink/25 bg-paper py-3 font-mono text-xs font-bold tracking-wider text-ink uppercase transition-colors hover:border-ink hover:bg-paper-2"
           >
-            <Bell size={18} className="shrink-0 text-[#ff8a3d]" />
-            <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-white">Research alerts</span>
-            <span className={alerts ? 'mono-label shrink-0 text-[11px] text-[#34d399]' : 'mono-label shrink-0 text-[11px] text-[#6b675c]'}>{alerts ? 'ON' : 'OFF'}</span>
+            Sign Out
           </button>
         </div>
-      </div>
-
-      {/* Sign out */}
-      <div className="anim-rise stagger-3 mt-6">
-        <Button variant="danger" onClick={() => setConfirmOut(true)}>
-          <LogOut size={17} /> Sign out
-        </Button>
-        <p className="mt-3 text-center font-mono text-[10px] text-[#6b675c]">Finora v2.0 · Every number has a receipt</p>
-      </div>
-
-      <ConfirmSheet
-        open={confirmOut} onClose={() => setConfirmOut(false)}
-        title="Sign out?" body="You'll need to sign back in to research and chat." confirmLabel="Sign out" danger
-        onConfirm={signOut}
-      />
+      </section>
     </div>
   );
 }

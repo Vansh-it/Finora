@@ -1,35 +1,36 @@
 {
-  "name": "finora-mobile",
+  "name": "finora",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "dev:all": "npx concurrently --names frontend,flask --kill-others --kill-others-on-fail \"vite --port 4321\" \"cd backend && python app.py\"",
+    "dev:backend": "cd backend && python app.py",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "clsx": "^2.1.1",
-    "lucide-react": "^1.54.0",
-    "ogl": "^1.0.11",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "buffer": "^6.0.3",
+    "clsx": "2.1.1",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^1.37.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.18.4",
+    "react-router-dom": "^7.18.3",
     "recharts": "^3.10.1",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "3.4.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.13.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7",
-    "@vitejs/plugin-react": "^6.1.1",
-    "oxlint": "^1.81.0",
-    "tailwindcss": "^4.3.3",
-    "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "@tailwindcss/vite": "4.1.17",
+    "@types/node": "22.19.17",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vite": "7.3.2",
+    "vite-plugin-singlefile": "2.3.0"
   }
 }

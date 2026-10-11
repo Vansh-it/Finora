@@ -1,217 +1,116 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Loader2, ArrowRight } from "lucide-react";
-import Annotation from "../components/Annotation";
-import DocumentCard from "../components/DocumentCard";
-import HighlightText from "../components/HighlightText";
-import PaperTexture from "../components/PaperTexture";
-import { signIn, signUp } from "../lib/api";
-import { setToken } from "../lib/auth";
+import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { FileText, ShieldCheck } from 'lucide-react';
+import { Button, Field, SegmentedControl, TickerChip } from '../components/ui';
+import { ApiError, signIn, signUp } from '../lib/api';
+import { clearPendingTicker, setSession } from '../lib/auth';
+import { useToast } from '../hooks/toast';
+import { useKeyboardInset } from '../hooks/hooks';
 
-interface AuthNavState {
-  from?: string;
-  mode?: "signin" | "signup";
-}
+type Mode = 'Sign In' | 'Sign Up';
 
-export default function AuthPage() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const navState = (location.state || {}) as AuthNavState;
-  const from = navState.from || "/research";
+export function AuthPage() {
+  const nav = useNavigate();
+  const loc = useLocation();
+  const toast = useToast();
+  const inset = useKeyboardInset();
+  const [mode, setMode] = useState<Mode>('Sign Up');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [serverErr, setServerErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const [mode, setMode] = useState<"signin" | "signup">(
-    navState.mode === "signup" ? "signup" : "signin"
-  );
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const pendingTicker: string | undefined = (loc.state as { ticker?: string } | null)?.ticker
+    ?? sessionStorage.getItem('finora_pending_ticker') ?? undefined;
 
-  // Re-sync tab + pending research whenever a new redirect lands here
-  // (e.g. user goes back and searches another company).
-  useEffect(() => {
-    const s = (location.state || {}) as AuthNavState;
-    setMode(s.mode === "signup" ? "signup" : "signin");
-    setError(null);
-  }, [location.key]);
+  const strength = pw.length === 0 ? '' : pw.length < 8 ? 'Too short — use 8+ characters' : /[A-Z]/.test(pw) && /[0-9]/.test(pw) ? 'Strong password' : 'Good — add a number or capital letter';
 
-  // Company the user asked to research before being asked to sign up
-  const pendingCompany = useMemo(() => {
-    const query = from.split("?")[1];
-    if (!query) return null;
-    const ticker = new URLSearchParams(query).get("ticker");
-    return ticker ? decodeURIComponent(ticker) : null;
-  }, [from]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      let result;
-      if (mode === "signup") {
-        result = await signUp(email, password, name);
-      } else {
-        result = await signIn(email, password);
-      }
-
-      // Store token in localStorage
-      setToken(result.token);
-      localStorage.setItem("finora_user", JSON.stringify(result.user));
-
-      // Redirect to the page the user was trying to access, or research
-      navigate(from, { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
-      setLoading(false);
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (mode === 'Sign Up' && name.trim().length < 2) e.name = 'Please enter your name.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'Enter a valid email address.';
+    if (pw.length < 8) e.pw = 'Password must be at least 8 characters.';
+    setErrors(e);
+    if (Object.keys(e).length) {
+      const first = mode === 'Sign Up' && e.name ? 'name' : e.email ? 'email' : 'password';
+      document.getElementById(first)?.focus();
     }
-  }
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setServerErr(null);
+    if (!validate()) return;
+    setBusy(true);
+    try {
+      const res = mode === 'Sign Up'
+        ? await signUp(name.trim(), email.trim(), pw)
+        : await signIn(email.trim(), pw);
+      setSession(res.token, res.user);
+      const ticker = pendingTicker;
+      clearPendingTicker();
+      toast(mode === 'Sign Up' ? `Welcome, ${res.user.name}` : `Welcome back, ${res.user.name}`);
+      nav(ticker ? `/research?ticker=${encodeURIComponent(ticker)}` : '/research', { replace: true });
+    } catch (e) {
+      setServerErr(e instanceof ApiError ? e.message : 'Could not reach Finora. Check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="grid min-h-[85vh] grid-cols-1 lg:grid-cols-2">
-      {/* LEFT */}
-      <div className="relative hidden overflow-hidden border-r border-ink/15 bg-paper-2 lg:block">
-        <PaperTexture />
-        <div className="relative flex h-full flex-col justify-between p-12">
-          <Link to="/" className="flex items-center gap-2 font-serif text-2xl font-semibold tracking-tight text-ink">
-            <span className="inline-block h-3 w-3 bg-highlight" />
-            Finora.
-          </Link>
-
-          <div>
-            <h1 className="font-serif text-5xl leading-[1.05] font-medium text-ink">
-              Research the company.
-              <br />
-              <HighlightText>Verify the numbers.</HighlightText>
-            </h1>
-            <p className="mt-6 max-w-sm text-sm leading-relaxed text-ink-2">
-              Every metric in Finora traces back to an SEC filing, a company disclosure, or a corroborating market
-              source.
-            </p>
+    <div className="grid-glow flex min-h-full flex-col px-5 pb-6 pt-6">
+      <div className="anim-rise">
+        <p className="font-display text-[26px] font-bold tracking-tight text-white">Finora<span className="text-[#ff5a1f]">.</span></p>
+        <p className="mt-1 text-[15px] text-[#d7d3c8]">Verify the numbers behind every company.</p>
+        <div className="mt-4 hidden min-h-[90px] gap-2 min-[380px]:flex" aria-hidden>
+          <div className="card-dark flex flex-1 rotate-[-2deg] items-center gap-2 p-3">
+            <FileText size={18} className="shrink-0 text-[#ff8a3d]" />
+            <p className="font-mono text-[11px] text-[#d7d3c8]">10-K parsed<br />in seconds</p>
           </div>
-
-          <div className="relative h-40">
-            <DocumentCard rotate={-3} className="absolute bottom-0 left-0 w-52">
-              <Annotation label="Form 10-K" value="Annual Report" />
-              <div className="mt-2 font-mono text-xs text-ink">Net income $93.7B</div>
-            </DocumentCard>
-            <DocumentCard rotate={2} className="absolute right-0 bottom-4 w-40">
-              <Annotation label="Verified" tone="blue" />
-              <div className="mt-2 font-mono text-xs text-ink">9 sources</div>
-            </DocumentCard>
+          <div className="card-dark flex flex-1 rotate-[1.5deg] items-center gap-2 p-3">
+            <ShieldCheck size={18} className="shrink-0 text-[#34d399]" />
+            <p className="font-mono text-[11px] text-[#d7d3c8]">Every number<br />has a receipt</p>
           </div>
         </div>
       </div>
 
-      {/* RIGHT */}
-      <div className="flex items-center justify-center px-6 py-16">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex gap-6 border-b border-ink/15">
-            <button
-              onClick={() => { setMode("signin"); setError(null); }}
-              className={`pb-3 font-mono text-xs font-bold tracking-widest uppercase ${mode === "signin" ? "border-b-2 border-highlight text-ink" : "text-ink-3"}`}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => { setMode("signup"); setError(null); }}
-              className={`pb-3 font-mono text-xs font-bold tracking-widest uppercase ${mode === "signup" ? "border-b-2 border-highlight text-ink" : "text-ink-3"}`}
-            >
-              Sign Up
-            </button>
-          </div>
+      {pendingTicker && (
+        <div className="anim-pop mt-4 flex items-center gap-2.5 rounded-2xl border border-[#ff5a1f]/40 bg-[#ff5a1f]/[0.08] p-3.5" role="status">
+          <span className="text-[14px] text-[#d7d3c8]">You asked to research</span>
+          <TickerChip ticker={pendingTicker} />
+        </div>
+      )}
 
-          <h2 className="font-serif text-3xl font-semibold text-ink">
-            {mode === "signin" ? "Welcome back." : "Create your account."}
-          </h2>
-          <p className="mt-2 text-sm text-ink-2">
-            {mode === "signin" ? "Continue your research where you left off." : "Start building traceable research files."}
-          </p>
+      <div className="anim-rise stagger-1 mt-5">
+        <SegmentedControl options={['Sign In', 'Sign Up'] as const} value={mode} onChange={setMode} />
+      </div>
 
-          {pendingCompany && (
-            <div className="mt-4 flex items-start gap-3 border-2 border-ink bg-paper-2 p-4">
-              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center bg-highlight">
-                <ArrowRight size={13} className="text-ink" />
-              </div>
-              <p className="text-sm leading-relaxed text-ink">
-                You asked to research{" "}
-                <span className="font-bold">{pendingCompany}</span>. Create your
-                account and Finora will start that research immediately — no
-                need to type it again.
-              </p>
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-4 border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
-            {mode === "signup" && (
-              <label className="block">
-                <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">Full Name</span>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Jane Analyst"
-                  required
-                  className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
-                />
-              </label>
-            )}
-            <label className="block">
-              <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="jane@firm.com"
-                required
-                className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
-              />
-            </label>
-            <label className="block">
-              <span className="font-mono text-[10px] font-bold tracking-widest text-ink-3 uppercase">Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={8}
-                className="mt-2 w-full border border-ink/30 bg-paper px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-ink focus:outline-none"
-              />
-            </label>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-2 bg-ink py-3.5 font-mono text-xs font-bold tracking-widest text-paper uppercase transition-colors hover:bg-ink-2 disabled:opacity-50"
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  {mode === "signin" ? "Signing In..." : "Creating Account..."}
-                </>
-              ) : (
-                mode === "signin" ? "Sign In" : "Create Account"
-              )}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-xs text-ink-3">
-            By continuing you agree to Finora's{" "}
-            <Link to="/terms" className="underline underline-offset-2 hover:text-ink">Terms</Link> &{" "}
-            <Link to="/privacy" className="underline underline-offset-2 hover:text-ink">Privacy Policy</Link>.
+      <form onSubmit={submit} noValidate className="anim-rise stagger-2 mt-5 space-y-4">
+        {mode === 'Sign Up' && (
+          <Field label="Name" id="name" value={name} onChange={(e) => setName(e.target.value)} onBlur={validate}
+            placeholder="Ada Lovelace" autoComplete="name" enterKeyHint="next" error={errors.name} />
+        )}
+        <Field label="Email" id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={mode === 'Sign In' ? undefined : validate}
+          placeholder="you@example.com" autoComplete="email" inputMode="email" enterKeyHint="next" error={errors.email} />
+        <Field label="Password" id="password" type="password" value={pw} onChange={(e) => setPw(e.target.value)}
+          placeholder="8+ characters" autoComplete={mode === 'Sign Up' ? 'new-password' : 'current-password'}
+          enterKeyHint="go" error={errors.pw} hint={mode === 'Sign Up' ? strength : undefined} />
+        <div aria-live="assertive">
+          {serverErr && <p role="alert" className="rounded-xl border border-[#f87171]/40 bg-[#f87171]/10 p-3 text-[13px] text-[#f87171]">{serverErr}</p>}
+        </div>
+        <div style={{ paddingBottom: inset > 0 ? inset : 0 }}>
+          <Button type="submit" size="lg" loading={busy}>
+            {mode === 'Sign Up' ? 'Create account' : 'Sign in'}
+          </Button>
+          <p className="mt-3 text-center font-mono text-[11px] text-[#6b675c]">
+            {mode === 'Sign Up' ? 'Free · 5 researches / 24h · No card' : '5 researches refresh every 24 hours'}
           </p>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

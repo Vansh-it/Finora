@@ -1,241 +1,255 @@
-import { Link } from "react-router-dom";
-import { ArrowRight, TrendingUp, CheckCircle2, FileText } from "lucide-react";
-import EditorialHeading from "../components/EditorialHeading";
-import HighlightText from "../components/HighlightText";
-import ResearchInput from "../components/ResearchInput";
-import Annotation from "../components/Annotation";
-import SourceStamp from "../components/SourceStamp";
-import DocumentCard from "../components/DocumentCard";
-import PaperTexture from "../components/PaperTexture";
-import AnimatedMetric from "../components/AnimatedMetric";
-import ReviewsSection from "../components/ReviewsSection";
-import FinoraFAQ from "../components/FinoraFAQ";
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, BadgeCheck, ChevronDown, FileText, Flame, LineChart, Play, Sigma, Star, Zap } from 'lucide-react';
+import { ResearchInput } from '../components/ResearchInput';
+import { EditorialHeading, HighlightText, Skeleton, SourceStamp, Stars, TickerChip } from '../components/ui';
+import { useCachedQuery, useReveal } from '../hooks/hooks';
+import { getReviews } from '../lib/api';
+import type { Review } from '../lib/data';
 
-const PIPELINE = [
-  { n: "01", title: "Identify", desc: "Resolve the company & ticker to an authoritative filer.", icon: "card" },
-  { n: "02", title: "Read", desc: "Parse SEC 10-K, 10-Q and 8-K filings line by line.", icon: "clip" },
-  { n: "03", title: "Normalize", desc: "Map disclosures into a consistent financial schema.", icon: "table" },
-  { n: "04", title: "Calculate", desc: "Derive ratios and metrics with documented formulas.", icon: "formula" },
-  { n: "05", title: "Verify", desc: "Cross-check figures against independent sources.", icon: "verify" },
-  { n: "06", title: "Explain", desc: "Produce a plain-language research memo.", icon: "memo" },
+const SOURCES = ['SEC EDGAR', 'Company IR', 'Twelve Data', 'Finora AI'];
+
+const DOC_CARDS = [
+  { tag: '10-K · FY2024', title: '$398.8B revenue', sub: 'Audited · XBRL us-gaap:Revenues', icon: FileText },
+  { tag: 'FORMULA', title: 'ROIC = NOPAT ÷ Capital', sub: 'Computed in Python · 28.4%', icon: Sigma },
+  { tag: 'AAPL · $231.40', title: '+2.4% today', sub: 'Live market feed', icon: LineChart },
+  { tag: 'VERDICT', title: 'SEC Verified', sub: '9 sources · 7 cross-verified', icon: BadgeCheck },
+  { tag: 'FORENSICS', title: 'F-Score 8/9', sub: 'Altman Z 4.1 · Beneish −2.4', icon: Flame },
 ];
 
-export default function HomePage() {
+const STEPS = [
+  { n: '01', t: 'Identify', d: 'Resolve the company to its exact SEC registrant — no ticker mix-ups.' },
+  { n: '02', t: 'Read', d: 'Parse 10-K / 10-Q filings, footnotes and MD&A end to end.' },
+  { n: '03', t: 'Normalize', d: 'Map every line to standard XBRL concepts across periods.' },
+  { n: '04', t: 'Calculate', d: 'Run 48+ metrics in Python — deterministic, re-runnable.' },
+  { n: '05', t: 'Verify', d: 'Cross-check against 9 sources; flag every mismatch.' },
+  { n: '06', t: 'Explain', d: 'Finora AI writes the memo — interpretation only, never fabrication.' },
+];
+
+const FAQS = [
+  { q: 'Is Finora investment advice?', a: 'No. Finora is a research tool. It shows you what the filings say, how each number was computed, and where it was verified — decisions stay with you.' },
+  { q: 'Where do the numbers come from?', a: 'SEC EDGAR is the factual authority. Market prices come from Twelve Data and company IR. Every metric links to its formula, inputs and source filing.' },
+  { q: 'What does the free tier include?', a: '5 full researches every 24 hours — each with the 9-tab dashboard, evidence receipts, chat and Excel export.' },
+  { q: 'How does the AI avoid hallucinating?', a: 'The AI only writes explanations over pre-computed, verified values. It cannot invent numbers — if data is missing, Finora says so with the reason.' },
+];
+
+export function HomePage() {
+  const ref = useReveal<HTMLDivElement>();
+  const [dots, setDots] = useState(0);
+  const [metricOpen, setMetricOpen] = useState(false);
+  const [faq, setFaq] = useState(0);
+  const reviews = useCachedQuery<Review[]>('reviews', async () => getReviews(), { ttlMs: 60_000 });
+  const hasReviews = (reviews.data?.length ?? 0) > 0;
+
   return (
-    <div>
+    <div ref={ref} className="grid-glow pb-10">
+      {/* corner labels like reference art */}
+      <div className="flex items-start justify-between px-5 pt-4">
+        <p className="mono-label text-left text-[#a7a29a]">Performance<br /><span className="font-semibold text-white">Analytics</span></p>
+        <p className="mono-label text-right text-[#a7a29a]"><span className="font-semibold text-white">Evidence-traced</span><br />Reports</p>
+      </div>
+
       {/* HERO */}
-      <section className="relative overflow-hidden border-b border-ink/15">
-        <PaperTexture />
-        <div className="mx-auto max-w-[1440px] px-4 pt-14 pb-20 sm:px-6 lg:px-10 lg:pt-20 lg:pb-28">
-          <div className="grid grid-cols-1 gap-12 lg:grid-cols-[1.3fr_0.9fr] lg:gap-8">
-            {/* Left: headline + input */}
-            <div className="relative">
-              <p className="mb-5 font-mono text-xs font-semibold tracking-[0.3em] text-ink-3 uppercase">
-                AI Financial Research &amp; Intelligence
-              </p>
-              <h1 className="font-serif text-[13vw] leading-[0.94] font-medium tracking-tight text-ink sm:text-[8vw] lg:text-[4.6vw]">
-                Research
-                <br />
-                the company.
-                <br />
-                <HighlightText className="inline-block">Verify the numbers.</HighlightText>
-              </h1>
-
-              <p className="mt-8 max-w-xl text-base leading-relaxed text-ink-2 sm:text-lg">
-                Finora turns public filings into financial statements, institutional-grade metrics, valuation
-                analysis and explainable research — with every important figure traced back to its source.
-              </p>
-
-              <div className="mt-10 max-w-2xl">
-                <ResearchInput />
-              </div>
-
-              <div className="mt-10 flex flex-wrap gap-x-10 gap-y-4">
-                <Annotation label="Source 01" value="SEC EDGAR" />
-                <Annotation label="Source 02" value="Company IR" tone="blue" />
-                <Annotation label="Market" value="Twelve Data" />
-                <Annotation label="Analysis" value="Finora AI" tone="red" />
-              </div>
-            </div>
-
-            {/* Right: editorial research desk */}
-            <div className="relative hidden min-h-[560px] lg:block">
-              {/* ——— CONNECTOR — clean curved path from 10-K → ROIC ——— */}
-              <svg
-                className="pointer-events-none absolute inset-0 h-full w-full"
-                viewBox="0 0 400 560"
-                fill="none"
-              >
-                <path
-                  d="M 300 95 C 280 140, 200 155, 115 200"
-                  stroke="#3978FF"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  fill="none"
-                  opacity="0.45"
-                />
-                <polygon
-                  points="113,203 119,194 108,196"
-                  fill="#3978FF"
-                  opacity="0.45"
-                />
-              </svg>
-
-              {/* ——— 10-K CARD — top right ——— */}
-              <div className="absolute top-0 right-4 w-64">
-                <DocumentCard rotate={1.5} className="relative w-full overflow-hidden">
-                  <div className="font-mono text-[9px] tracking-[0.2em] text-ink-3 uppercase">
-                    Form 10-K · Annual Report
-                  </div>
-                  <div className="mt-2 font-serif text-sm leading-snug text-ink">
-                    "Net sales increased 2% during fiscal 2025 compared to fiscal 2024..."
-                  </div>
-                  <div className="mark-highlight mt-2 inline-block font-mono text-xs font-bold">
-                    $398.8B revenue
-                  </div>
-                  <FileText size={14} className="mt-3 text-ink-3" />
-                </DocumentCard>
-              </div>
-
-              {/* ——— ROIC CARD — center left ——— */}
-              <div className="absolute top-[200px] left-0 w-52">
-                <DocumentCard rotate={-1} className="w-full">
-                  <div className="font-mono text-[10px] font-bold tracking-widest text-annotate-blue uppercase">
-                    ROIC Formula
-                  </div>
-                  <div className="mt-2 font-mono text-xs leading-relaxed text-ink">
-                    ROIC =<br />NOPAT / Invested Capital
-                  </div>
-                </DocumentCard>
-              </div>
-
-              {/* ——— MARKET CARD — center/lower right ——— */}
-              <div className="absolute top-[290px] right-0 w-60">
-                <DocumentCard rotate={0.5} className="w-full">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] tracking-widest text-ink-3 uppercase">
-                      NASDAQ · AAPL
-                    </span>
-                    <TrendingUp size={14} className="text-annotate-green" />
-                  </div>
-                  <svg viewBox="0 0 120 40" className="mt-2 h-10 w-full">
-                    <polyline
-                      points="0,32 15,28 30,30 45,20 60,22 75,12 90,15 105,6 120,8"
-                      fill="none"
-                      stroke="#111111"
-                      strokeWidth="1.5"
-                    />
-                  </svg>
-                  <div className="mt-1 font-mono text-lg font-bold text-ink">$231.40</div>
-                </DocumentCard>
-              </div>
-
-              {/* ——— SEC VERIFIED STAMP — lower left ——— */}
-              <div className="absolute top-[440px] left-8">
-                <SourceStamp tone="blue">SEC Verified</SourceStamp>
-              </div>
-
-              {/* ——— CROSS-VERIFICATION CARD — bottom right ——— */}
-              <div className="absolute bottom-0 right-10 w-56">
-                <DocumentCard rotate={1} className="w-full">
-                  <Annotation label="Cross-Verification" tone="red" />
-                  <div className="mt-2 flex items-center gap-2 font-mono text-xs text-ink">
-                    <CheckCircle2 size={14} className="text-annotate-green" />
-                    9 sources · 7 cross-verified
-                  </div>
-                </DocumentCard>
-              </div>
-            </div>
-          </div>
+      <section className="px-5 pt-6">
+        <div data-reveal>
+          <span className="annotation-tag">AI financial research</span>
+        </div>
+        <h1 data-reveal className="mt-3 font-display text-[34px] font-bold leading-[38px] tracking-tight text-white">
+          Research the company.<br /><HighlightText>Verify the numbers.</HighlightText>
+        </h1>
+        <p data-reveal className="mt-3 text-[15px] leading-[22px] text-[#d7d3c8]">
+          Finora reads SEC filings, calculates in Python, verifies across 9 sources — and shows a receipt for every number.
+        </p>
+        <div data-reveal className="relative z-20 mt-5">
+          <ResearchInput large />
+        </div>
+        <div data-reveal className="snap-row mt-4" role="list" aria-label="Data sources">
+          {SOURCES.map((s) => (
+            <span key={s} role="listitem" className="flex min-h-[44px] items-center rounded-full border border-white/12 bg-white/[0.04] px-4 font-mono text-[11px] tracking-wider text-[#d7d3c8]">
+              <span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#ff5a1f]" />{s}
+            </span>
+          ))}
         </div>
       </section>
 
-      {/* HOW FINORA THINKS */}
-      <section className="relative border-b border-ink/15 bg-paper-2">
-        <PaperTexture />
-        <div className="mx-auto max-w-[1440px] px-4 py-20 sm:px-6 lg:px-10">
-          <EditorialHeading size="md">
-            One question. Multiple sources.
-            <br />
-            <HighlightText>One research record.</HighlightText>
-          </EditorialHeading>
-
-          <div className="mt-14 grid grid-cols-2 gap-x-6 gap-y-12 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
-            {PIPELINE.map((step, i) => (
-              <div key={step.n} className="relative">
-                <div className="font-mono text-xs font-bold text-ink-3">{step.n}</div>
-                <div className="mt-2 flex h-20 w-full items-center justify-center border border-ink/25 bg-paper">
-                  <PipelineIcon type={step.icon} />
-                </div>
-                <h3 className="mt-3 font-serif text-lg font-semibold text-ink">{step.title}</h3>
-                <p className="mt-1 text-xs leading-snug text-ink-2">{step.desc}</p>
-                {i < PIPELINE.length - 1 && (
-                  <ArrowRight size={16} className="absolute top-6 -right-5 hidden text-ink-3 lg:block" />
-                )}
+      {/* DOC COLLAGE CAROUSEL */}
+      <section className="mt-8" aria-label="Research desk preview">
+        <div className="px-5"><EditorialHeading kicker="Live desk" title="A research file, in seconds" /></div>
+        <div
+          className="snap-row mt-4 px-5"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const i = Math.round(el.scrollLeft / (el.scrollWidth / DOC_CARDS.length));
+            setDots(Math.min(DOC_CARDS.length - 1, Math.max(0, i)));
+          }}
+        >
+          {DOC_CARDS.map((c) => (
+            <div key={c.title} data-reveal className="card-dark w-[78vw] max-w-[300px] p-4">
+              <div className="flex items-center justify-between">
+                <span className="mono-label text-[#ff8a3d]">{c.tag}</span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ff5a1f]/12"><c.icon size={17} className="text-[#ff8a3d]" /></span>
               </div>
-            ))}
-          </div>
+              <p className="mt-3 font-display text-[19px] font-semibold text-white">{c.title}</p>
+              <p className="mt-1 font-mono text-[11px] text-[#a7a29a]">{c.sub}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex justify-center gap-1.5" aria-hidden>
+          {DOC_CARDS.map((_, i) => (
+            <span key={i} className={`h-1.5 rounded-full transition-all ${i === dots ? 'w-5 bg-[#ff5a1f]' : 'w-1.5 bg-white/20'}`} />
+          ))}
         </div>
       </section>
 
-      {/* EVERY NUMBER HAS A RECEIPT */}
-      <section className="relative">
-        <PaperTexture />
-        <div className="mx-auto max-w-[1440px] px-4 py-20 sm:px-6 lg:px-10">
-          <div className="grid grid-cols-1 gap-14 lg:grid-cols-2">
+      {/* TIMELINE */}
+      <section className="mt-10 px-5" aria-label="How Finora thinks">
+        <EditorialHeading kicker="Method" title="How Finora thinks" />
+        <ol className="relative mt-5 space-y-1 border-l-2 border-[#ff5a1f]/30 pl-0">
+          {STEPS.map((s) => (
+            <li key={s.n} data-reveal className="relative flex gap-3 pb-5 pl-5">
+              <span className="absolute -left-[9px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[#ff5a1f] bg-[#0a0a0c]" aria-hidden>
+                <span className="h-1.5 w-1.5 rounded-full bg-[#ff5a1f]" />
+              </span>
+              <div className="card-dark flex-1 p-3.5">
+                <p className="font-mono text-[11px] text-[#ff8a3d]">{s.n}</p>
+                <h3 className="font-display text-[16px] font-semibold text-white">{s.t}</h3>
+                <p className="mt-0.5 text-[13px] leading-[18px] text-[#a7a29a]">{s.d}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* ANIMATED METRIC DEMO */}
+      <section className="mt-6 px-5" aria-label="Every number has a receipt">
+        <EditorialHeading kicker="Promise" title={<>Every number has<br />a receipt</>} />
+        <button
+          data-reveal
+          onClick={() => setMetricOpen(!metricOpen)}
+          aria-expanded={metricOpen}
+          className="card-dark pressable mt-4 w-full p-4 text-left"
+          style={metricOpen ? { borderColor: 'rgba(255,90,31,0.5)', boxShadow: '0 0 0 1px rgba(255,90,31,.35), 0 12px 32px rgba(0,0,0,.45)' } : undefined}
+        >
+          <div className="flex items-center justify-between">
             <div>
-              <EditorialHeading size="md">
-                Every number
-                <br />
-                <HighlightText>has a receipt.</HighlightText>
-              </EditorialHeading>
-              <p className="mt-6 max-w-md text-base leading-relaxed text-ink-2">
-                Finora doesn't just show you a metric — it shows the calculation, the underlying filing, and the
-                exact XBRL concept that produced it. No black boxes.
-              </p>
-              <Link
-                to="/dashboard"
-                className="mt-8 inline-flex items-center gap-2 border-b-2 border-ink pb-1 font-mono text-xs font-bold tracking-[0.15em] text-ink uppercase transition-colors hover:border-highlight"
-              >
-                See it in the dashboard <ArrowRight size={14} />
-              </Link>
+              <p className="mono-label text-[#a7a29a]">AAPL · FY2024 · tap me</p>
+              <p className="num mt-1 text-[26px] font-semibold text-white">$398.8B <span className="text-[14px] font-normal text-[#a7a29a]">revenue</span></p>
             </div>
-
-            <AnimatedMetric />
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#ff5a1f] text-white" style={{ animation: 'pulse-glow 2s infinite' }}>
+              <Play size={17} fill="currentColor" />
+            </span>
           </div>
-        </div>
+          <div className={`grid transition-all duration-300 ${metricOpen ? 'mt-3 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+            <div className="overflow-hidden">
+              <div className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3">
+                <p className="num text-[12px] text-[#ffb25c]">Revenue = Σ quarterly reported revenue</p>
+                <p className="font-mono text-[11px] text-[#a7a29a]">Q1 $97.2B · Q2 $99.8B · Q3 $98.1B · Q4 $103.7B</p>
+                <p className="font-mono text-[11px] text-[#7ab8ff]">us-gaap:Revenues · 10-K filed 2024-11-01</p>
+                <SourceStamp text="Cross-verified · 7" />
+              </div>
+            </div>
+          </div>
+        </button>
+        <Link to="/research" data-reveal className="btn-primary pressable mt-3 flex min-h-[52px] items-center justify-center gap-2 rounded-2xl font-display text-[15px] font-semibold text-white">
+          See a live dashboard <ArrowRight size={17} />
+        </Link>
       </section>
 
       {/* REVIEWS */}
-      <ReviewsSection />
+      <section className="mt-10" aria-label="Reviews">
+        <div className="px-5">
+          <EditorialHeading kicker={hasReviews ? 'Loved by analysts' : 'Your turn'} title="Reviews" right={<Link to="/reviews" className="flex min-h-[44px] items-center font-mono text-[11px] tracking-wider text-[#ff8a3d]">VIEW ALL</Link>} />
+        </div>
+        {reviews.loading && !reviews.data ? (
+          <div className="snap-row mt-4 px-5">
+            {[0, 1].map((i) => <Skeleton key={i} className="h-[140px] w-[78vw] max-w-[300px]" />)}
+          </div>
+        ) : hasReviews ? (
+          <div className="snap-row mt-4 px-5">
+            {reviews.data!.map((r) => (
+              <figure key={r.id} data-reveal className="card-dark w-[78vw] max-w-[300px] p-4">
+                <Stars value={r.stars} />
+                <blockquote className="mt-2 line-clamp-3 text-[14px] leading-6 text-[#d7d3c8]">“{r.text}”</blockquote>
+                <figcaption className="mt-2 flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#ff5a1f]/15 font-display text-[13px] font-semibold text-[#ff8a3d]">{r.name[0]?.toUpperCase()}</span>
+                  <span className="text-[13px] font-medium text-white">{r.name}</span>
+                  {r.company && <TickerChip ticker={r.company} />}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : (
+          <div className="px-5 pt-4">
+            <div data-reveal className="card-dark p-5 text-center">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff5a1f]/15">
+                <Star size={22} className="text-[#ff8a3d]" fill="#ff8a3d" />
+              </span>
+              <h3 className="mt-3 font-display text-[17px] font-bold text-white">Be the first to review Finora</h3>
+              <p className="mt-1.5 text-[14px] leading-6 text-[#a7a29a]">Reviews help the next analyst find us — and it takes no time. Rate your research and say what you verified.</p>
+              <Link to="/reviews" className="btn-primary pressable mt-4 flex min-h-[52px] items-center justify-center gap-2 rounded-2xl font-display text-[15px] font-semibold text-white">
+                <Star size={17} /> Write a review
+              </Link>
+            </div>
+          </div>
+        )}
+      </section>
 
-      {/* FAQ SECTION */}
-      <FinoraFAQ />
+      {/* FAQ */}
+      <section className="mt-10 px-5" aria-label="FAQ">
+        <EditorialHeading kicker="Questions" title="Finora, explained" />
+        <div className="mt-4 space-y-2">
+          {FAQS.map((f, i) => {
+            const open = faq === i;
+            return (
+              <div key={f.q} data-reveal className="overflow-hidden rounded-2xl border border-white/10 bg-[#14151a]">
+                <button
+                  onClick={() => setFaq(open ? -1 : i)}
+                  aria-expanded={open}
+                  className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 text-left text-[15px] font-medium text-white"
+                >
+                  {f.q}
+                  <ChevronDown size={18} className={`shrink-0 text-[#ff8a3d] transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+                <div className={`grid transition-all duration-250 ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                  <p className="overflow-hidden px-4 text-[14px] leading-6 text-[#a7a29a]">{open ? f.a : ''}<span className={open ? 'block h-4' : ''} /></p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
-    </div>
-  );
-}
-
-function PipelineIcon({ type }: { type: string }) {
-  const common = "text-ink";
-  switch (type) {
-    case "card":
-      return <div className={`h-8 w-6 border-2 border-ink ${common}`} />;
-    case "clip":
-      return <FileText size={22} className={common} />;
-    case "table":
-      return (
-        <div className="grid h-8 w-10 grid-cols-2 grid-rows-2 gap-0.5">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="border border-ink" />
+      {/* PRINCIPLES STRIP */}
+      <section className="mt-8 px-5" aria-label="Principles">
+        <div data-reveal className="grid grid-cols-3 gap-2">
+          {[
+            { icon: BadgeCheck, t: 'SEC = authority', d: 'Facts' },
+            { icon: Sigma, t: 'Python = engine', d: 'Math' },
+            { icon: Zap, t: 'AI = insight', d: 'Words' },
+          ].map((p) => (
+            <div key={p.t} className="card-dark flex flex-col items-center p-3 text-center">
+              <p.icon size={18} className="text-[#ff8a3d]" />
+              <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-white">{p.t}</p>
+              <p className="font-mono text-[10px] text-[#6b675c]">{p.d}</p>
+            </div>
           ))}
         </div>
-      );
-    case "formula":
-      return <span className="font-mono text-sm font-bold text-ink">x÷y</span>;
-    case "verify":
-      return <CheckCircle2 size={22} className="text-annotate-green" />;
-    default:
-      return <div className="h-8 w-8 border-2 border-dashed border-ink" />;
-  }
+      </section>
+
+      {/* MINI FOOTER */}
+      <footer className="mt-10 border-t border-white/10 px-5 pb-4 pt-6">
+        <p className="font-display text-[17px] font-bold text-white">Finora<span className="text-[#ff5a1f]">.</span></p>
+        <p className="mt-1 text-[13px] leading-5 text-[#a7a29a]">AI financial research with a receipt for every number.</p>
+        <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-2" aria-label="Footer">
+          {[
+            ['Privacy', '/privacy'], ['Terms', '/terms'], ['About', '/about'],
+            ['Methodology', '/methodology'], ['Reviews', '/reviews'], ['Who We Are', '/more'],
+          ].map(([label, to]) => (
+            <Link key={to + label} to={to} className="flex min-h-[44px] items-center text-[13px] text-[#d7d3c8] underline-offset-4 active:underline">{label}</Link>
+          ))}
+        </nav>
+        <p className="mt-2 font-mono text-[10px] text-[#6b675c]">© 2026 Finora · Not investment advice</p>
+      </footer>
+    </div>
+  );
 }

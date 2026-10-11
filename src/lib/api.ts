@@ -1,808 +1,428 @@
-const API_BASE = import.meta.env.VITE_API_URL || "";
+// Real API layer. Talks to the deployed Finora Flask backend.
+//
+// The backend origin is configured with VITE_API_URL (see .env.example).
+// In dev, API_BASE is empty so requests hit /api on the same origin and the
+// Vite dev proxy forwards them to the deployed backend (no CORS needed).
+// A production build with no VITE_API_URL targets the deployed backend.
+import type { CompanySuggestion, DashboardSession, HistoryItem, Review } from './data';
+import { getToken } from './auth';
+import { adaptSession } from './adapter';
 
-const MAX_RETRIES = 2;
-const INITIAL_RETRY_DELAY = 1000;
+const RAW_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').trim();
+export const API_BASE = RAW_BASE.replace(/\/+$/, '') || (import.meta.env.DEV ? '' : 'https://finora-api-dio1.onrender.com');
+
+const DEFAULT_TIMEOUT = 30_000;
+const RESEARCH_TIMEOUT = 150_000;
+const CHAT_TIMEOUT = 60_000;
 
 export class ApiError extends Error {
   status: number;
-  payload: Record<string, unknown> | null;
-
-  constructor(message: string, status: number, payload: Record<string, unknown> | null = null) {
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
-    this.name = "ApiError";
+    this.name = 'ApiError';
     this.status = status;
-    this.payload = payload;
+    this.code = code;
   }
 }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function toApiError(res: Response): Promise<ApiError> {
+  let payload: Record<string, unknown> | null = null;
+  try { payload = (await res.json()) as Record<string, unknown>; } catch { /* non-JSON */ }
+  const message =
+    (payload && (payload.error as string)) ||
+    (payload && (payload.message as string)) ||
+    `Request failed (${res.status})`;
+  let code: string | undefined;
+  if (res.status === 401) code = 'unauthorized';
+  else if (res.status === 403) code = 'forbidden';
+  else if (res.status === 404) code = 'not_found';
+  else if (res.status === 429) code = payload?.quota_exhausted ? 'quota_exhausted' : 'rate_limited';
+  else if (res.status === 409) code = payload?.research_in_progress ? 'research_in_progress' : 'conflict';
+  else if (res.status === 202) code = 'pending';
+  return new ApiError(res.status, message, code);
 }
 
-async function apiFetch<T>(
-  path: string,
-  options: RequestInit = {},
-  retries = MAX_RETRIES
-): Promise<T> {
-  const url = `${API_BASE}${path}`;
-  let lastError: Error | null = null;
+interface FetchOpts {
+  method?: string;
+  body?: unknown;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  retries?: number;
+  auth?: boolean;
+}
 
+async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
+  const { method = 'GET', body, signal, timeoutMs = DEFAULT_TIMEOUT, retries = 2, auth = true } = opts;
+
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (auth) {
+    const token = getToken();
+    if (!token) throw new ApiError(401, 'Please sign in to continue.', 'unauthorized');
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    if (signal) {
+      if (signal.aborted) ctrl.abort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const controller = new AbortController();
-      // Set a generous timeout: 180s for chat, 120s for research endpoints, 30s default
-      const isChat = path.includes("/chat");
-      const isResearch = path.includes("/research/");
-      const timeoutMs = isChat ? 45000 : isResearch ? 120000 : 30000;
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-      const res = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          ...options.headers,
-        },
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
       });
 
-      clearTimeout(timeoutId);
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        throw new Error(
-          text.includes("<!doctype")
-            ? `Server returned HTML instead of JSON. Make sure the backend is running on port 8000.`
-            : `API error (${res.status}): ${text.slice(0, 200)}`
-        );
+      if (!res.ok || res.status === 202) {
+        const err = await toApiError(res);
+        if (res.status >= 500 && attempt < retries) {
+          lastErr = err;
+          await sleep(400 * (attempt + 1));
+          continue;
+        }
+        throw err;
       }
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        const errorMsg = data?.error || `Request failed (${res.status})`;
-        throw new ApiError(errorMsg, res.status, data);
+      if (res.status === 204) return undefined as T;
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) return (await res.json()) as T;
+      return (await res.text()) as unknown as T;
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        lastErr = new ApiError(504, 'Finora took too long to respond. Please try again.', 'timeout');
+        if (attempt < retries) { await sleep(400 * (attempt + 1)); continue; }
+        throw lastErr;
       }
-
-      return data as T;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-
-      // Don't retry on 4xx client errors (quota 429, conflict 409, etc.)
-      if (
-        (err instanceof ApiError && err.status >= 400 && err.status < 500) ||
-        lastError.message.includes("(4") ||
-        lastError.message.includes("company_limit_reached")
-      ) {
-        throw lastError;
-      }
-
-      // Don't retry if this was the last attempt
-      if (attempt >= retries) break;
-
-      // Retry with exponential backoff
-      const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
-      await sleep(delay);
+      if (e instanceof ApiError) throw e;
+      lastErr = e;
+      if (attempt < retries) { await sleep(400 * (attempt + 1)); continue; }
+      throw new ApiError(0, 'Could not reach Finora. Check your connection and try again.', 'network');
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
     }
   }
+  throw lastErr instanceof Error ? lastErr : new ApiError(0, 'Request failed.', 'network');
+}
 
-  // All retries failed — provide a clear, actionable error message
-  const msg = lastError?.message || "Unknown error";
-  if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-    throw new Error(
-      "Could not reach the Finora backend. Make sure the server is running (npm run dev:all) and try again."
-    );
-  }
-  if (msg.includes("abort")) {
-    throw new Error(
-      "The request timed out. The AI is still thinking — please try again."
-    );
-  }
-  throw lastError || new Error("Request failed after multiple attempts.");
+// ── Quota (server snapshot mirrored to localStorage for the /limit page) ──────
+interface QuotaState { used: number; resetAt: number }
+const QUOTA_KEY = 'finora_quota_v1';
+
+export function getQuotaState(): QuotaState {
+  try {
+    const raw = localStorage.getItem(QUOTA_KEY);
+    if (raw) {
+      const q = JSON.parse(raw) as QuotaState;
+      if (Date.now() < q.resetAt) return q;
+    }
+  } catch { /* fresh */ }
+  const fresh = { used: 0, resetAt: Date.now() + 24 * 3600 * 1000 };
+  try { localStorage.setItem(QUOTA_KEY, JSON.stringify(fresh)); } catch { /* ignore */ }
+  return fresh;
+}
+
+function saveQuotaState(used: number, resetAt: number): void {
+  try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ used, resetAt })); } catch { /* ignore */ }
+}
+
+export async function getUsage(): Promise<{ used: number; limit: number; remaining: number; resetAt: number }> {
+  const q = await apiFetch<{ used: number; limit: number; remaining: number; resets_at: number }>(
+    '/api/research/quota',
+  );
+  const resetAt = q.resets_at ? q.resets_at * 1000 : Date.now() + 24 * 3600 * 1000;
+  saveQuotaState(q.used, resetAt);
+  return { used: q.used, limit: q.limit, remaining: Math.max(0, q.remaining), resetAt };
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
+interface AuthResult { token: string; user: { name?: string; email: string } }
 
-export interface AuthUser {
-  user_id: string;
-  email: string;
-  name: string;
-}
-
-export async function signUp(
-  email: string,
-  password: string,
-  name: string
-): Promise<{ token: string; user: AuthUser }> {
-  return apiFetch("/api/auth/signup", {
-    method: "POST",
-    body: JSON.stringify({ email, password, name }),
+export async function signIn(email: string, password: string): Promise<{ token: string; user: { name: string; email: string } }> {
+  const res = await apiFetch<AuthResult>('/api/auth/signin', {
+    method: 'POST', body: { email, password }, auth: false, retries: 0,
   });
+  return {
+    token: res.token,
+    user: { name: res.user?.name || (res.user?.email ?? email).split('@')[0], email: res.user?.email ?? email },
+  };
 }
 
-export async function signIn(
-  email: string,
-  password: string
-): Promise<{ token: string; user: AuthUser }> {
-  return apiFetch("/api/auth/signin", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
+export async function signUp(name: string, email: string, password: string): Promise<{ token: string; user: { name: string; email: string } }> {
+  const res = await apiFetch<AuthResult>('/api/auth/signup', {
+    method: 'POST', body: { name, email, password }, auth: false, retries: 0,
   });
+  return {
+    token: res.token,
+    user: { name: res.user?.name || name, email: res.user?.email ?? email },
+  };
 }
 
-export async function getProfile(
-  token: string
-): Promise<{ user: AuthUser }> {
-  return apiFetch("/api/auth/me", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function signOutUser(): Promise<void> {
+  try { await apiFetch('/api/auth/signout', { method: 'POST', retries: 0 }); } catch { /* best effort */ }
 }
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
-
-export interface ChatResponse {
-  response: string;
-  model_used: string;
-  status: string;
-  elapsed_ms: number;
+// ── Company suggest ───────────────────────────────────────────────────────────
+export async function suggestCompanies(q: string, signal?: AbortSignal): Promise<CompanySuggestion[]> {
+  const needle = q.trim();
+  if (!needle) return [];
+  const res = await apiFetch<{ results?: Array<{ name?: string; ticker?: string; exchange?: string }> }>(
+    `/api/company/suggest?q=${encodeURIComponent(needle)}`,
+    { auth: false, signal, timeoutMs: 15_000, retries: 1 },
+  );
+  return (res.results ?? []).map((r) => ({
+    ticker: (r.ticker ?? '').toUpperCase(),
+    name: r.name ?? r.ticker ?? '',
+    exchange: r.exchange ?? '',
+  }));
 }
 
-export interface ChatHistoryMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+// ── Research ──────────────────────────────────────────────────────────────────
+export const RESEARCH_STAGES = [
+  'Entity Identified', 'SEC Filings Located', 'Financial Statements',
+  'Metrics Calculated', 'Sources Discovered', 'Source Verification',
+  'Analysis Generated', 'Valuation Complete', 'Research File Complete',
+] as const;
 
-export async function sendChatMessage(
-  message: string,
-  history: ChatHistoryMessage[] = [],
-  token?: string
-): Promise<ChatResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+const SESSION_CACHE = new Map<string, DashboardSession>();
 
-  return apiFetch("/api/chat", {
-    method: "POST",
-    body: JSON.stringify({ message, history }),
-    headers,
-  });
-}
-
-export async function sendDashboardChatMessage(
-  message: string,
-  sessionId: string,
-  history: ChatHistoryMessage[] = [],
-  token?: string
-): Promise<ChatResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/chat/dashboard", {
-    method: "POST",
-    body: JSON.stringify({ message, session_id: sessionId, history }),
-    headers,
-  });
-}
-
-// ── Chat research streaming + usage quota ───────────────────────────────────
-
-export interface ChatUsage {
-  messages_used: number;
-  messages_limit: number;
-  messages_remaining: number;
-  words_used: number;
-  words_limit: number;
-  words_remaining: number;
-  reset_at: string;
-}
-
-export async function getChatUsage(token?: string): Promise<ChatUsage> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return apiFetch("/api/chat/usage", { headers });
-}
-
-export interface ChatSource {
-  title: string;
-  url: string;
-  publisher: string;
-  published_at?: string;
-  tier?: string;
-}
-
-export interface ChatResearchInfo {
-  mode: string;
-  performed: boolean;
-  num_queries: number;
-  num_sources_found: number;
-  num_sources_used: number;
-  search_ms: number;
-  fetch_ms: number;
-  llm_ms: number;
-  total_ms: number;
-  degraded: boolean;
-}
-
-export interface ChatUsageInline extends Partial<ChatUsage> {
-  remaining?: number;
-  limit?: number;
-}
-
-export interface ChatAnswerPayload {
-  response: string;
-  status: string;
-  elapsed_ms: number;
-  word_count?: number;
-  response_compressed?: boolean;
-  sources?: ChatSource[];
-  research?: ChatResearchInfo;
-  usage?: ChatUsageInline;
-}
-
-export type ChatStage =
-  | "understanding"
-  | "internal"
-  | "searching"
-  | "comparing"
-  | "synthesizing";
-
-export interface ChatStreamHandlers {
-  onStatus?: (stage: ChatStage) => void;
-  onAnswer?: (payload: ChatAnswerPayload) => void;
-  onError?: (message: string) => void;
-}
-
-/**
- * POST /api/chat/stream — reads an SSE-style stream of JSON frames:
- *   {"event":"status","stage":...} | {"event":"answer",...} | {"event":"error",...}
- * Research statuses are emitted only when the backend actually runs that stage.
- */
-export async function streamChatMessage(opts: {
-  message: string;
-  history?: ChatHistoryMessage[];
-  sessionId?: string | null;
-  previousMode?: string | null;
-  token?: string;
-  handlers: ChatStreamHandlers;
-}): Promise<void> {
-  const { message, history = [], sessionId, previousMode, token, handlers } = opts;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000);
+export async function runResearch(
+  ticker: string,
+  onStage: (idx: number) => void,
+  signal?: AbortSignal,
+): Promise<DashboardSession> {
+  onStage(0);
+  let idx = 0;
+  const timer = window.setInterval(() => {
+    if (idx < RESEARCH_STAGES.length - 1) {
+      idx += 1;
+      onStage(idx);
+    }
+  }, 1100);
 
   try {
-    const res = await fetch(`${API_BASE}/api/chat/stream`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        message,
-        history,
-        session_id: sessionId || "",
-        previous_mode: previousMode || null,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      let msg = `Request failed (${res.status})`;
-      try {
-        const data = await res.json();
-        if (data?.error) msg = data.error;
-      } catch {
-        /* keep generic message */
-      }
-      const err = new Error(msg) as Error & { status?: number };
-      err.status = res.status;
-      throw err;
+    const res = await apiFetch<{ status?: string; session_id?: string; dashboard?: unknown; error?: string }>(
+      '/api/research/run',
+      {
+        method: 'POST',
+        body: { company: ticker.trim(), period_mode: 'latest' },
+        signal,
+        timeoutMs: RESEARCH_TIMEOUT,
+        retries: 0,
+      },
+    );
+    if (!res.dashboard || !res.session_id) {
+      throw new ApiError(500, res.error || 'Research failed unexpectedly.', 'error');
     }
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("text/event-stream")) {
-      const data = await res.json();
-      if (data?.event === "error" || data?.error) {
-        handlers.onError?.(data.error || "Request failed");
-      } else if (data?.response) {
-        handlers.onAnswer?.(data as ChatAnswerPayload);
-      }
-      return;
-    }
-
-    const reader = res.body?.getReader();
-    if (!reader) {
-      throw new Error("Streaming is not supported by this browser.");
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n\n")) >= 0) {
-        const frame = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        const line = frame.split("\n").find((l) => l.startsWith("data: "));
-        if (!line) continue;
-        let parsed: Record<string, unknown> & { event?: string };
-        try {
-          parsed = JSON.parse(line.slice(6));
-        } catch {
-          continue;
-        }
-        if (parsed.event === "status") {
-          handlers.onStatus?.(parsed.stage as ChatStage);
-        } else if (parsed.event === "answer") {
-          handlers.onAnswer?.(parsed as unknown as ChatAnswerPayload);
-        } else if (parsed.event === "error") {
-          handlers.onError?.(
-            (parsed.error as string) || "Finora is temporarily unable to respond."
-          );
-        }
-      }
-    }
+    const session = adaptSession(res.dashboard, res.session_id);
+    SESSION_CACHE.set(session.sessionId, session);
+    onStage(RESEARCH_STAGES.length);
+    return session;
   } finally {
-    clearTimeout(timeoutId);
+    window.clearInterval(timer);
   }
 }
 
-// ── Intent Classification ─────────────────────────────────────────────────────
-
-export interface IntentResult {
-  intent: "chat" | "research";
-  confidence: number;
-  reasoning?: string;
-}
-
-export async function classifyIntent(
-  prompt: string
-): Promise<IntentResult> {
-  return apiFetch("/api/classify-intent", {
-    method: "POST",
-    body: JSON.stringify({ prompt }),
+export async function getSession(sessionId: string): Promise<DashboardSession> {
+  const cached = SESSION_CACHE.get(sessionId);
+  if (cached) return cached;
+  const payload = await apiFetch<unknown>(`/api/research/result/${encodeURIComponent(sessionId)}`, {
+    timeoutMs: 60_000,
   });
+  const session = adaptSession(payload, sessionId);
+  SESSION_CACHE.set(sessionId, session);
+  return session;
 }
 
-// ── Research Pipeline ─────────────────────────────────────────────────────────
-
-export interface GrantPermissionResponse {
-  session_id: string;
-  company: string;
-  status: string;
-  period_mode: string;
+// ── History ───────────────────────────────────────────────────────────────────
+export async function getHistory(): Promise<HistoryItem[]> {
+  const res = await apiFetch<{ researches?: Array<Record<string, unknown>> }>('/api/research/history');
+  return (res.researches ?? []).map((r) => ({
+    sessionId: String(r.session_id ?? ''),
+    ticker: String(r.ticker ?? ''),
+    company: String(r.company ?? ''),
+    period: String(r.period ?? ''),
+    date: String(r.created_at ?? ''),
+    headline: String(r.headline ?? ''),
+    metrics: Number(r.metric_count ?? 0),
+    sources: Number(r.source_count ?? 0),
+  }));
 }
 
-export async function grantPermission(
-  company: string,
-  periodMode: string = "latest",
-  startYear?: number,
-  endYear?: number,
-  token?: string
-): Promise<GrantPermissionResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+export async function getRecentTickers(): Promise<string[]> {
+  const hist = await getHistory();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of hist) {
+    if (h.ticker && !seen.has(h.ticker)) {
+      seen.add(h.ticker);
+      out.push(h.ticker);
+    }
+    if (out.length >= 3) break;
+  }
+  return out;
+}
 
-  return apiFetch("/api/grant-permission", {
-    method: "POST",
-    body: JSON.stringify({
-      company,
-      period_mode: periodMode,
-      start_year: startYear,
-      end_year: endYear,
-    }),
-    headers,
+// ── Chat ──────────────────────────────────────────────────────────────────────
+export interface ChatMsg { role: 'user' | 'assistant'; text: string; ms?: number }
+
+const FOLLOW_UPS = ['Why did margins expand?', 'Is the dividend safe?', 'What could go wrong?', 'Explain ROIC simply'];
+
+export function followUps(): string[] { return FOLLOW_UPS; }
+
+function chatBody(messages: ChatMsg[], sessionId?: string): Record<string, unknown> {
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const history = messages
+    .slice(0, Math.max(0, messages.length - 1))
+    .map((m) => ({ role: m.role, content: m.text }));
+  // Phone screen: keep replies short — only what was asked, no filler.
+  const message = `${lastUser?.text ?? ''}\n\n(Reply for a phone: at most 4 short sentences, plain words, no headings, no tables, no preamble. Answer only the question.)`;
+  const body: Record<string, unknown> = { message, history };
+  if (sessionId) body.session_id = sessionId;
+  return body;
+}
+
+export async function sendChat(
+  messages: ChatMsg[],
+  _sessionTicker?: string,
+  sessionId?: string,
+): Promise<{ text: string; ms: number }> {
+  const t0 = performance.now();
+  const path = sessionId ? '/api/chat/dashboard' : '/api/chat';
+  const res = await apiFetch<{ response?: string; elapsed_ms?: number; error?: string }>(path, {
+    method: 'POST',
+    body: chatBody(messages, sessionId),
+    timeoutMs: CHAT_TIMEOUT,
+    retries: 1,
   });
+  if (!res.response) throw new ApiError(502, res.error || 'Finora could not answer right now.', 'error');
+  const ms = typeof res.elapsed_ms === 'number' ? res.elapsed_ms : Math.round(performance.now() - t0);
+  return { text: res.response, ms };
 }
 
-export interface FetchFilingsResponse {
-  status: string;
-  company: { name: string; ticker: string; cik: string; exchange: string };
-  period: { mode: string; start_year: number; end_year: number; label: string };
-  documents: Array<{
-    document_id: string;
-    form: string;
-    filing_date: string;
-    period_of_report: string;
-    source_url: string;
-    primary_document: string;
-  }>;
-  document_count: number;
+export async function* streamChat(messages: ChatMsg[], sessionId?: string): AsyncGenerator<string, void, void> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, 'Please sign in to continue.', 'unauthorized');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CHAT_TIMEOUT);
+  try {
+    const res = await fetch(`${API_BASE}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(chatBody(messages, sessionId)),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw await toApiError(res);
+    if (!res.body) throw new ApiError(502, 'Streaming is unavailable in this browser.', 'stream');
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let streamError: string | null = null;
+    let finished = false;
+
+    while (!finished) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
+        let evt: { event?: string; response?: string; error?: string };
+        try { evt = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
+        if (evt.event === 'error') {
+          streamError = evt.error || 'Finora is temporarily unable to respond.';
+          finished = true;
+          break;
+        }
+        if (evt.event === 'answer') {
+          if (typeof evt.response === 'string' && evt.response) yield evt.response;
+          finished = true;
+          break;
+        }
+      }
+    }
+    if (streamError) throw new ApiError(502, streamError, 'error');
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') {
+      throw new ApiError(504, 'Finora took too long to respond. Please try again.', 'timeout');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-export async function fetchFilings(
-  sessionId: string,
-  token?: string
-): Promise<FetchFilingsResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/fetch-filings", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
+// ── Reviews ───────────────────────────────────────────────────────────────────
+export async function getReviews(): Promise<Review[]> {
+  const res = await apiFetch<{ reviews?: Array<Record<string, unknown>> }>('/api/reviews', {
+    auth: false, timeoutMs: 15_000, retries: 1,
   });
+  return (res.reviews ?? []).map((r, i) => ({
+    id: String(r.id ?? r.timestamp ?? `rev-${i}`),
+    name: String(r.name ?? 'Anonymous'),
+    company: r.company ? String(r.company) : undefined,
+    stars: Number(r.rating ?? 5),
+    text: String(r.review ?? ''),
+    date: String(r.timestamp ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+  }));
 }
 
-export interface ExtractFinancialsResponse {
-  status: string;
-  company: { name: string; ticker: string; cik: string };
-  periods: string[];
-  income_statement: Record<string, unknown>;
-  balance_sheet: Record<string, unknown>;
-  cash_flow: Record<string, unknown>;
-  additional: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-}
-
-export async function extractFinancials(
-  sessionId: string,
-  token?: string
-): Promise<ExtractFinancialsResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/extract-financials", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
+export async function postReview(input: { name: string; company?: string; stars: number; text: string }): Promise<Review> {
+  const res = await apiFetch<{ status?: string; review?: Record<string, unknown>; error?: string }>('/api/reviews', {
+    method: 'POST',
+    body: { name: input.name, company: input.company ?? '', rating: input.stars, review: input.text, website: '' },
+    auth: false,
+    timeoutMs: 20_000,
+    retries: 0,
   });
-}
-
-export interface CalculateMetricsResponse {
-  status: string;
-  company: { name: string; ticker: string };
-  periods: string[];
-  annual_metrics: Record<string, unknown>;
-  growth_metrics: Record<string, unknown>;
-  cagr_metrics: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-}
-
-export async function calculateMetrics(
-  sessionId: string,
-  token?: string
-): Promise<CalculateMetricsResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/calculate-metrics", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
-  });
-}
-
-export interface DiscoverSourcesResponse {
-  status: string;
-  sources: Array<{
-    source_id: string;
-    source_type: string;
-    authority: string;
-    provider: string;
-    url: string;
-    title: string;
-    period: string;
-    trust_tier: number;
-    status: string;
-  }>;
-  metadata: Record<string, unknown>;
-}
-
-export async function discoverSources(
-  sessionId: string,
-  token?: string
-): Promise<DiscoverSourcesResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/discover-sources", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
-  });
-}
-
-export interface ReadVerifySourcesResponse {
-  status: string;
-  sources_read: number;
-  metrics_verified: number;
-  mismatches: number;
-  verifications: Array<Record<string, unknown>>;
-  commentary: Array<Record<string, unknown>>;
-  summary: {
-    total_compared: number;
-    exact_matches: number;
-    within_tolerance: number;
-    mismatches: number;
-    not_comparable: number;
-    missing_external: number;
-    missing_sec: number;
+  if (res.status && res.status !== 'success') {
+    throw new ApiError(400, res.error || 'Could not post review.', 'validation');
+  }
+  const r = res.review ?? {};
+  return {
+    id: String(r.id ?? r.timestamp ?? Date.now()),
+    name: String(r.name ?? input.name),
+    company: (r.company ? String(r.company) : input.company) || undefined,
+    stars: Number(r.rating ?? input.stars),
+    text: String(r.review ?? input.text),
+    date: String(r.timestamp ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10),
   };
 }
 
-export async function readVerifySources(
-  sessionId: string,
-  token?: string
-): Promise<ReadVerifySourcesResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/read-verify-sources", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
+// ── Profile ───────────────────────────────────────────────────────────────────
+export async function updateProfile(name: string): Promise<{ name: string }> {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) throw new ApiError(400, 'Name must be at least 2 characters.', 'validation');
+  const res = await apiFetch<{ user?: { name?: string } }>('/api/auth/update-profile', {
+    method: 'POST', body: { name: trimmed }, retries: 1,
   });
+  return { name: res.user?.name ?? trimmed };
 }
 
-export interface GenerateSummaryResponse {
-  status: string;
-  executive_summary: {
-    executive_overview: string;
-    highlights: Array<{ title: string; text: string }>;
-    growth_analysis: string;
-    profitability_analysis: string;
-    cash_flow_analysis: string;
-    balance_sheet_analysis: string;
-    watch_items: Array<{ tag: string; text: string }>;
-    management_commentary_summary: string;
-    data_quality_note: string;
-  };
-  warning?: string;
+// ── Watchlist (device-local) ──────────────────────────────────────────────────
+const WATCH_KEY = 'finora_watchlist_v1';
+export function getWatchlist(): string[] {
+  try { return JSON.parse(localStorage.getItem(WATCH_KEY) ?? '[]') as string[]; } catch { return []; }
 }
-
-export async function generateSummary(
-  sessionId: string,
-  token?: string
-): Promise<GenerateSummaryResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/generate-summary", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
-  });
-}
-
-export interface CalculateValuationResponse {
-  status: string;
-  market_data: {
-    ticker: string;
-    name: string;
-    exchange: string;
-    currency: string;
-    price: number | null;
-    price_date: string;
-    previous_close: number | null;
-    percent_change: number | null;
-    shares_outstanding: number | null;
-    market_cap: number | null;
-    source: string;
-    error?: string;
-    fallback?: boolean;
-    historical?: boolean;
-  };
-  valuation_metrics: Record<string, unknown>;
-  period_alignment: Record<string, unknown>;
-  is_financial_institution: boolean;
-}
-
-export async function calculateValuation(
-  sessionId: string,
-  token?: string
-): Promise<CalculateValuationResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/calculate-valuation", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-    headers,
-  });
-}
-
-// ── Dashboard Payload ─────────────────────────────────────────────────────────
-
-export interface DashboardPayload {
-  company: {
-    ticker: string;
-    name: string;
-    exchange: string;
-    sector: string;
-  };
-  periods: string[];
-  income_statement: Record<string, unknown>;
-  balance_sheet: Record<string, unknown>;
-  cash_flow: Record<string, unknown>;
-  annual_metrics: Record<string, unknown>;
-  growth_metrics: Record<string, unknown>;
-  cagr_metrics: Record<string, unknown>;
-  market_data: Record<string, unknown>;
-  valuation_metrics: Record<string, unknown>;
-  executive_summary: Record<string, unknown>;
-  verification_results: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-}
-
-export async function getResearchResult(
-  sessionId: string,
-  token?: string
-): Promise<DashboardPayload> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch(`/api/research/result/${sessionId}`, {
-    headers,
-  });
-}
-
-// ── Session ───────────────────────────────────────────────────────────────────
-
-export async function getSession(
-  sessionId: string
-): Promise<Record<string, unknown>> {
-  return apiFetch(`/api/session/${sessionId}`);
-}
-
-export async function cancelSession(
-  sessionId: string
-): Promise<{ session_id: string; status: string }> {
-  return apiFetch("/api/cancel-session", {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
-  });
-}
-
-// ── Research Quota ────────────────────────────────────────────────────────────
-
-export async function getResearchQuota(
-  token: string
-): Promise<{
-  allowed: boolean;
-  used: number;
-  limit: number;
-  remaining: number;
-  resets_at: number;
-}> {
-  return apiFetch("/api/research/quota", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
-// ── Single Pipeline Call ─────────────────────────────────────────────────────
-
-export interface RunResearchResponse {
-  status: string;
-  session_id: string;
-  dashboard?: DashboardPayload;
-  error?: string;
-}
-
-export async function runResearch(
-  company: string,
-  periodMode: string = "latest",
-  token?: string
-): Promise<RunResearchResponse> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  return apiFetch("/api/research/run", {
-    method: "POST",
-    body: JSON.stringify({ company, period_mode: periodMode }),
-    headers,
-  });
-}
-
-// ── Research History ──────────────────────────────────────────────────────
-
-export interface HistoryEntry {
-  session_id: string;
-  company: string;
-  ticker: string;
-  period: string;
-  created_at: string;
-  headline: string;
-  metric_count: number;
-  source_count: number;
-  status: string;
-}
-
-export interface HistoryResponse {
-  researches: HistoryEntry[];
-  usage: {
-    used: number;
-    limit: number;
-    remaining: number;
-    resets_at?: number;
-    exhausted?: boolean;
-  };
-}
-
-export async function getResearchHistory(
-  token: string
-): Promise<HistoryResponse> {
-  return apiFetch("/api/research/history", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
-// ── Profile ────────────────────────────────────────────────────────────────
-
-export interface ProfileData {
-  user: {
-    user_id: string;
-    email: string;
-    name: string;
-    company?: string;
-    research_runs_used: number;
-    research_runs_limit: number;
-  };
-  completed_researches: number;
-  usage: {
-    used: number;
-    limit: number;
-    remaining: number;
-    resets_at?: number;
-  };
-}
-
-export async function getFullProfile(token: string): Promise<ProfileData> {
-  return apiFetch("/api/auth/profile", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
-export async function updateProfile(
-  token: string,
-  data: { name?: string; company?: string }
-): Promise<{ user: ProfileData["user"] }> {
-  return apiFetch("/api/auth/update-profile", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify(data),
-  });
-}
-
-// ── Health Check ──────────────────────────────────────────────────────────────
-
-export async function healthCheck(): Promise<{
-  status: string;
-  active_provider: string;
-  providers_available: number;
-}> {
-  return apiFetch("/api/health");
-}
-
-// ── Reviews ──────────────────────────────────────────────────────────────────
-
-export interface Review {
-  timestamp: string;
-  name: string;
-  company: string;
-  rating: number;
-  review: string;
-}
-
-export interface ReviewsResponse {
-  reviews: Review[];
-  configured?: boolean;
-  error?: string | null;
-}
-
-export async function getReviews(limit = 12): Promise<ReviewsResponse> {
-  return apiFetch(`/api/reviews?limit=${limit}`);
-}
-
-export async function submitReview(data: {
-  name: string;
-  company: string;
-  rating: number;
-  review: string;
-  website?: string;
-}): Promise<{ status: string; message: string; review: Review }> {
-  return apiFetch("/api/reviews", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+export function toggleWatch(ticker: string): string[] {
+  const t = ticker.toUpperCase();
+  const list = getWatchlist();
+  const next = list.includes(t) ? list.filter((x) => x !== t) : [...list, t];
+  try { localStorage.setItem(WATCH_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  return next;
 }

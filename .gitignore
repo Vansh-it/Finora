@@ -48,3 +48,10 @@ credentials.json
 live_backend*.log
 vite.log
 vite.err.log
+
+# Mobile app artifacts
+shots/
+dist-ssr/
+*.local
+.env.*
+!.env.example

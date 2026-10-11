@@ -1,295 +1,144 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
-import { ArrowRight, AlertCircle, Search, Building2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import TickerChip from "./TickerChip";
-import { getToken, isAuthenticated } from "../lib/auth";
-import { getResearchQuota } from "../lib/api";
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Building2, Search, X, Loader2 } from 'lucide-react';
+import { suggestCompanies } from '../lib/api';
+import { COMPANIES } from '../lib/data';
+import type { CompanySuggestion } from '../lib/data';
+import { isAuthed, setPendingTicker } from '../lib/auth';
+import { TickerChip } from './ui';
+import { cn } from '../lib/cn';
 
-const QUICK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"];
-
-interface Suggestion {
-  ticker: string;
-  name: string;
-  exchange?: string;
-  cik?: string;
-}
-
-export default function ResearchInput() {
-  const [value, setValue] = useState("");
-  const [showError, setShowError] = useState(false);
-  const [shaking, setShaking] = useState(false);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const navigate = useNavigate();
-
-  // Fetch the user's remaining researches so an exhausted user is sent
-  // straight to the letter page instead of a failing pipeline.
-  useEffect(() => {
-    if (!isAuthenticated()) return;
-    const token = getToken();
-    if (!token) return;
-    getResearchQuota(token)
-      .then((q) => setQuotaRemaining(q.remaining))
-      .catch(() => {});
-  }, []);
-
-  // True when the user has used all 5 researches this window
-  function isExhausted(): boolean {
-    return quotaRemaining !== null && quotaRemaining <= 0;
-  }
+export function ResearchInput({ large, autoTicker }: { large?: boolean; autoTicker?: string }) {
+  const nav = useNavigate();
+  const [q, setQ] = useState(autoTicker ?? '');
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<CompanySuggestion[]>([]);
+  const [active, setActive] = useState(-1);
+  const ctrl = useRef<AbortController | null>(null);
+  const timer = useRef<number>(0);
+  const boxId = useRef(`ri-${Math.random().toString(36).slice(2)}`).current;
 
   useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const fetchSuggestions = useCallback(async (query: string) => {
-    if (query.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
+    window.clearTimeout(timer.current);
+    ctrl.current?.abort();
+    if (!q.trim()) {
+      setResults([]);
+      setOpen(false);
+      setLoading(false);
       return;
     }
-    setIsLoading(true);
-    try {
-      const res = await fetch(`/api/company/suggest?q=${encodeURIComponent(query)}&limit=8`);
-      if (res.ok) {
-        const data = await res.json();
-        // Handle both {results: [...]} and [...] response formats
-        const items = Array.isArray(data) ? data : (data.results || []);
-        setSuggestions(items);
-        setShowSuggestions(items.length > 0);
-        setSelectedIndex(-1);
-      }
-    } catch {
-      // Silently ignore autocomplete errors
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  function triggerError() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setShowError(true);
-    setShaking(true);
-    setTimeout(() => setShaking(false), 500);
-    timerRef.current = setTimeout(() => setShowError(false), 4000);
-    inputRef.current?.focus();
-  }
-
-  function buildResearchUrl(query: string): string {
-    // If it looks like a ticker (1-5 uppercase letters), use as ticker
-    // Otherwise use as search query
-    const isTicker = /^[A-Za-z]{1,5}$/.test(query);
-    return `/research?ticker=${isTicker ? query.toUpperCase() : encodeURIComponent(query)}`;
-  }
-
-  function handleSubmit(e: FormEvent, tickerOverride?: string) {
-    e.preventDefault();
-    const query = tickerOverride || value.trim();
-    if (!query) {
-      triggerError();
-      return;
-    }
-    const target = buildResearchUrl(query);
-    if (!isAuthenticated()) {
-      // New user: send them to the SIGN UP tab with the research pending,
-      // so it starts automatically right after account creation.
-      navigate("/auth", { state: { from: target, mode: "signup" } });
-      return;
-    }
-    if (isExhausted()) {
-      // Out of researches: the developer's letter explains what happens next
-      navigate("/limit");
-      return;
-    }
-    navigate(target);
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev < suggestions.length - 1 ? prev + 1 : 0
-        );
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev > 0 ? prev - 1 : suggestions.length - 1
-        );
-        break;
-      case "Enter":
-        if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
-          e.preventDefault();
-          const s = suggestions[selectedIndex];
-          setValue(s.ticker || s.name);
-          setShowSuggestions(false);
-          handleSubmit(e, s.ticker || s.name);
+    // instant local fallback
+    const needle = q.trim().toLowerCase();
+    setResults(COMPANIES.filter((c) => c.ticker.toLowerCase().includes(needle) || c.name.toLowerCase().includes(needle)).slice(0, 6));
+    setOpen(true);
+    setLoading(true);
+    timer.current = window.setTimeout(async () => {
+      const c = new AbortController();
+      ctrl.current = c;
+      try {
+        const r = await suggestCompanies(q, c.signal);
+        if (!c.signal.aborted) {
+          setResults(r);
+          setOpen(true);
         }
-        break;
-      case "Escape":
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
-        break;
+      } catch { /* keep local */ } finally {
+        if (!c.signal.aborted) setLoading(false);
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timer.current);
+      ctrl.current?.abort();
+    };
+  }, [q]);
+
+  const submit = (ticker: string) => {
+    const t = ticker.trim().toUpperCase();
+    if (!t) return;
+    setOpen(false);
+    if (!isAuthed()) {
+      setPendingTicker(t);
+      nav('/auth', { state: { ticker: t } });
+    } else {
+      nav(`/research?ticker=${encodeURIComponent(t)}`);
     }
-  }
+  };
 
   return (
-    <div className="w-full relative">
-      <form
-        onSubmit={handleSubmit}
-        className={`relative flex flex-col gap-3 border-2 bg-paper p-2 shadow-[6px_6px_0_0_#111111] transition-shadow duration-300 sm:flex-row sm:items-center sm:gap-0 ${
-          showError
-            ? "border-red-500 shadow-[6px_6px_0_0_#ef4444]"
-            : "border-ink"
-        } ${shaking ? "animate-[shake_0.5s_ease-in-out]" : ""}`}
+    <div className="relative z-30">
+      <div
+        className={cn(
+          'flex items-center gap-2 rounded-2xl border border-white/15 bg-black/50 pl-4 pr-2 backdrop-blur transition-shadow focus-within:border-[#ff5a1f]/70 focus-within:shadow-[0_0_0_1px_rgba(255,90,31,0.4),0_8px_32px_rgba(255,90,31,0.2)]',
+          large ? 'min-h-[60px]' : 'min-h-[56px]',
+        )}
       >
+        <Search size={20} className="shrink-0 text-[#ff8a3d]" />
         <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => {
-            const v = e.target.value;
-            setValue(v);
-            if (showError) setShowError(false);
-
-            // Debounced autocomplete
-            if (debounceRef.current) clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(() => fetchSuggestions(v), 250);
-          }}
-          onFocus={() => {
-            if (suggestions.length > 0) setShowSuggestions(true);
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Research Microsoft, Apple, Walmart..."
-          aria-label="Research a company"
-          aria-autocomplete="list"
-          aria-expanded={showSuggestions}
-          aria-activedescendant={selectedIndex >= 0 ? `suggestion-${selectedIndex}` : undefined}
           role="combobox"
-          className="w-full flex-1 bg-transparent px-4 py-4 font-sans text-base text-ink placeholder:text-ink-3 focus:outline-none sm:text-lg"
+          aria-expanded={open}
+          aria-controls={`${boxId}-list`}
+          aria-activedescendant={active >= 0 ? `${boxId}-opt-${active}` : undefined}
+          aria-label="Search a company or ticker"
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setActive(-1); }}
+          onFocus={() => q.trim() && setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(results.length - 1, a + 1)); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(-1, a - 1)); }
+            else if (e.key === 'Enter') { e.preventDefault(); submit(active >= 0 ? results[active].ticker : q); }
+            else if (e.key === 'Escape') setOpen(false);
+          }}
+          placeholder="Try AAPL, Tesla, NVIDIA…"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="search"
+          className="h-full min-h-[52px] w-full bg-transparent text-[16px] text-white outline-none placeholder:text-[#6b675c]"
         />
+        {loading ? <Loader2 size={18} className="mr-2 shrink-0 animate-spin text-[#ff8a3d]" /> : q ? (
+          <button aria-label="Clear search" onClick={() => setQ('')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#a7a29a]">
+            <X size={18} />
+          </button>
+        ) : null}
         <button
-          type="submit"
-          className="flex items-center justify-center gap-2 whitespace-nowrap bg-ink px-6 py-4 font-mono text-xs font-bold tracking-[0.15em] text-paper uppercase transition-colors hover:bg-ink-2"
+          onClick={() => submit(q)}
+          aria-label="Research this company"
+          className="btn-primary pressable hidden min-h-[44px] shrink-0 items-center rounded-xl px-4 font-display text-sm font-semibold text-white min-[360px]:flex"
         >
-          Start Research
-          <ArrowRight size={15} />
+          Go
         </button>
-      </form>
+      </div>
 
-      {/* Autocomplete dropdown */}
-      {showSuggestions && suggestions.length > 0 && (
-        <div
-          ref={dropdownRef}
-          role="listbox"
-          aria-label="Company suggestions"
-          className="absolute z-50 mt-1 w-full border-2 border-ink bg-paper shadow-[4px_4px_0_0_#111111] overflow-hidden"
-        >
-          {suggestions.map((s, i) => (
-            <div
-              key={`${s.ticker}-${i}`}
-              id={`suggestion-${i}`}
-              role="option"
-              aria-selected={i === selectedIndex}
-              className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                i === selectedIndex
-                  ? "bg-ink text-paper"
-                  : "hover:bg-ink-5 text-ink"
-              } ${i > 0 ? "border-t border-ink-10" : ""}`}
-              onClick={(e) => {
-                setValue(s.ticker || s.name);
-                setShowSuggestions(false);
-                handleSubmit(e, s.ticker || s.name);
-              }}
-              onMouseEnter={() => setSelectedIndex(i)}
-            >
-              <Building2 size={14} className={i === selectedIndex ? "text-paper-3" : "text-ink-3"} />
-              <div className="flex-1 min-w-0">
-                <div className="font-sans text-sm font-semibold truncate">
-                  {s.name}
-                </div>
-              </div>
-              <div className={`flex items-center gap-2 shrink-0 ${i === selectedIndex ? "text-paper-3" : "text-ink-3"}`}>
-                <span className="font-mono text-xs font-bold">{s.ticker}</span>
-                {s.exchange && (
-                  <span className="font-mono text-[10px]">{s.exchange}</span>
-                )}
-              </div>
-            </div>
-          ))}
+      {open && (
+        <div className="anim-fade absolute inset-x-0 top-[calc(100%+8px)] z-50 overflow-hidden rounded-2xl border border-white/12 bg-[#14151a] shadow-[0_20px_50px_rgba(0,0,0,0.65)]">
+          <ul role="listbox" id={`${boxId}-list`} aria-label="Company suggestions">
+            {results.length === 0 && (
+              <li className="px-4 py-4 text-sm text-[#a7a29a]">No matches — try the ticker symbol (e.g. AAPL).</li>
+            )}
+            {results.map((r, i) => (
+              <li key={r.ticker} role="option" id={`${boxId}-opt-${i}`} aria-selected={i === active}>
+                <button
+                  onClick={() => submit(r.ticker)}
+                  onMouseEnter={() => setActive(i)}
+                  className={cn(
+                    'flex min-h-[56px] w-full items-center gap-3 px-4 text-left transition-colors',
+                    i === active ? 'bg-[#ff5a1f]/12' : 'active:bg-white/5',
+                  )}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05]">
+                    <Building2 size={16} className="text-[#ff8a3d]" />
+                  </span>
+                  <TickerChip ticker={r.ticker} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] font-medium text-white">{r.name}</span>
+                    <span className="block font-mono text-[11px] text-[#6b675c]">{r.exchange}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
-
-      {/* Premium validation toast */}
-      <div
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          showError ? "mt-3 max-h-20 opacity-100" : "mt-0 max-h-0 opacity-0"
-        }`}
-      >
-        <div className="flex items-center gap-3 border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-4 py-3 shadow-sm">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/10">
-            <AlertCircle size={16} className="text-red-500" />
-          </div>
-          <div className="flex-1">
-            <p className="font-sans text-sm font-semibold text-red-700">
-              Company name or ticker required
-            </p>
-            <p className="mt-0.5 font-sans text-xs text-red-500/80">
-              Enter a company name or ticker symbol to begin your research.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setShowError(false);
-              inputRef.current?.focus();
-            }}
-            className="shrink-0 rounded border border-red-200 bg-white px-3 py-1.5 font-mono text-[10px] font-bold tracking-[0.1em] text-red-600 uppercase transition-colors hover:bg-red-50"
-          >
-            Dismiss
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="mr-1 font-mono text-[10px] font-bold tracking-[0.2em] text-ink-3 uppercase">Try:</span>
-        {QUICK_TICKERS.map((t) => (
-          <TickerChip key={t} ticker={t} onClick={() => {
-            if (!isAuthenticated()) {
-              navigate("/auth", { state: { from: `/research?ticker=${t}`, mode: "signup" } });
-              return;
-            }
-            if (isExhausted()) {
-              navigate("/limit");
-              return;
-            }
-            navigate(`/research?ticker=${t}`);
-          }} />
-        ))}
-      </div>
     </div>
   );
 }

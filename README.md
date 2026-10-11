@@ -1,43 +1,69 @@
-# Astro Starter Kit: Minimal
+# Finora — AI Financial Research & Intelligence (Web)
 
-```sh
-npm create astro@latest -- --template minimal
-```
+The **web** version of Finora: an editorial-style front end that turns public
+filings into financial statements, institutional-grade metrics, valuation
+analysis, and explainable research — with every number traced to its source.
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Live Web Deployment
 
-## 🚀 Project Structure
+- **Web app (Vercel):** https://finora-gamma-two.vercel.app/
+- **Backend API (Flask):** set via `VITE_API_URL` (e.g. a Render service)
 
-Inside of your Astro project, you'll see the following folders and files:
+> This repository hosts the **web** frontend. The mobile app that briefly
+> replaced it lives on in git history — see `3f3f020` if you need to recover it.
+
+## Stack
+
+- Vite 7 + React 19 + TypeScript
+- Tailwind CSS 4 (`@tailwindcss/vite`)
+- React Router 7, Recharts, react-markdown, exceljs
+- `vite-plugin-singlefile` — the production build inlines everything into a
+  single `dist/index.html`
+- Flask backend served from `backend/` (Python)
+
+## Project Structure
 
 ```text
 /
-├── public/
+├── backend/          # Flask API (research, chat, reviews, exports)
+├── public/           # static assets (favicons, web manifest)
 ├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+│   ├── components/   # editorial UI components
+│   ├── pages/        # routes (home, research, dashboard, chat, ...)
+│   ├── lib/          # API client, auth, data, exports
+│   └── main.tsx
+├── index.html
+└── vite.config.ts
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+## Commands
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+Run from the repo root:
 
-Any static assets, like images, can be placed in the `public/` directory.
+| Command                 | Action                                                      |
+| :---------------------- | :---------------------------------------------------------- |
+| `npm install`           | Install dependencies                                         |
+| `npm run dev`           | Dev server at `http://localhost:4321` (proxies `/api`)       |
+| `npm run dev:backend`   | Run the Flask backend on `http://localhost:8000`             |
+| `npm run dev:all`       | Run frontend + backend together                              |
+| `npm run build`         | Production build to `./dist/` (single-file `index.html`)     |
+| `npm run preview`       | Preview the production build locally                         |
 
-## 🧞 Commands
+## Environment
 
-All commands are run from the root of the project, from a terminal:
+Copy `.env.example` to `.env` and fill in what you need. Frontend-relevant keys:
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+- `VITE_API_URL` — public base URL of the Flask backend. Leave unset in dev to
+  use the Vite proxy (`/api` → `http://localhost:8000`); set it for production
+  builds (Vercel) so the deployed UI reaches the API.
+- `BACKEND_URL` — backend origin used for hosted deployments.
+- `CORS_ORIGINS` — comma-separated allowed frontend origins.
 
-## 👀 Want to learn more?
+API keys (`NVIDIA_API_KEY`, `TAVILY_API_KEY`, `FMP_API_KEY`, etc.) belong to the
+backend and must never be exposed to the frontend.
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+## Deploying the Web Version
+
+Vercel builds this repo with `npm run build` and serves `dist/`. Set
+`VITE_API_URL` (and any backend secrets on the API host) in the Vercel project
+environment before deploying.

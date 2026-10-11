@@ -35,7 +35,7 @@ REVIEW_MIN, REVIEW_MAX = 10, 2000
 RATING_MIN, RATING_MAX = 1, 5
 
 _RATE_WINDOW = 3600  # 1 hour
-_RATE_MAX = 5        # submissions per window per IP
+_RATE_MAX = 20       # successful submissions per window per IP
 _CACHE_TTL = 60      # seconds a fresh read is served from memory
 _INIT_RETRY = 15     # seconds before retrying after a failed sheet open
 
@@ -45,6 +45,7 @@ _sheet_lock = threading.Lock()    # serializes network writes
 _attempts: dict[str, list[float]] = {}
 _cache: list[dict[str, Any]] = []
 _cache_at = 0.0
+_header_ready = False  # set once the header row has been verified/written
 _ws: Any = None
 _init_error = ""
 _init_failed_at = 0.0
@@ -148,16 +149,28 @@ def validate_review(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str
 
 
 def check_review_rate_limit(client_ip: str) -> tuple[bool, int]:
-    """Per-IP submission limiter. Returns (allowed, seconds_until_retry)."""
+    """Per-IP submission limiter. Returns (allowed, seconds_until_retry).
+
+    Read-only: it never records an attempt. Callers record a *successful*
+    submission with record_review_submission() so that validation errors or a
+    transient sheet outage never consume a reviewer's quota.
+    """
     now = time.time()
     with _lock:
-        stamps = [t for t in _attempts.get(client_ip, []) if now - t < _RATE_WINDOW]
-        if len(stamps) >= _RATE_MAX:
-            _attempts[client_ip] = stamps
-            return False, max(1, int(stamps[0] + _RATE_WINDOW - now))
-        stamps.append(now)
-        _attempts[client_ip] = stamps
+        recent = [t for t in _attempts.get(client_ip, []) if now - t < _RATE_WINDOW]
+        _attempts[client_ip] = recent
+    if len(recent) >= _RATE_MAX:
+        return False, max(1, int(recent[0] + _RATE_WINDOW - now))
     return True, 0
+
+
+def record_review_submission(client_ip: str) -> None:
+    """Count one successful submission against the per-IP window."""
+    now = time.time()
+    with _lock:
+        recent = [t for t in _attempts.get(client_ip, []) if now - t < _RATE_WINDOW]
+        recent.append(now)
+        _attempts[client_ip] = recent
 
 
 def _parse_values(values: list[list[str]]) -> list[dict[str, Any]]:
@@ -220,6 +233,7 @@ def _drop_cache() -> None:
 
 def add_review(review: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     """Append a validated review to the sheet. Returns (saved_review, error)."""
+    global _header_ready
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     row = [
         timestamp,
@@ -231,10 +245,13 @@ def add_review(review: dict[str, Any]) -> tuple[dict[str, Any] | None, str | Non
     try:
         ws = _open_worksheet()
         with _sheet_lock:
-            existing = ws.get_all_values()
-            if not existing:
-                ws.append_row(HEADERS, value_input_option="RAW")
+            # Only scan the sheet until the header row is confirmed. After the
+            # first successful write, a review is a single append_row round trip.
+            if not _header_ready:
+                if not ws.get_all_values():
+                    ws.append_row(HEADERS, value_input_option="RAW")
             ws.append_row(row, value_input_option="RAW")
+            _header_ready = True
     except Exception as exc:
         return None, str(exc)
     _drop_cache()

@@ -18,6 +18,7 @@ import logging
 from flask import Flask, jsonify, request, Response, stream_with_context
 import json
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ── Structured pipeline logging ──────────────────────────────────────────────
 logger = logging.getLogger("finora.pipeline")
@@ -70,7 +71,7 @@ from lib.chat_usage import (  # noqa: E402
     DAILY_MESSAGE_LIMIT, DAILY_WORD_LIMIT,
 )
 from lib.reviews import (  # noqa: E402
-    check_review_rate_limit, get_reviews, add_review, validate_review,
+    check_review_rate_limit, record_review_submission, get_reviews, add_review, validate_review,
 )
 from lib.research_agent import (  # noqa: E402
     classify_research_mode, needs_web_research, plan_queries,
@@ -91,6 +92,10 @@ from lib.fred_client import get_macro_for_dashboard  # noqa: E402
 from lib.conflict_resolver import resolve_metric  # noqa: E402
 
 app = Flask(__name__)
+
+# Trust exactly one reverse-proxy hop (Render/nginx) so request.remote_addr,
+# scheme and host reflect the real client rather than the proxy.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # ── CORS configuration ────────────────────────────────────────────────────────
 # In production, restrict to specific origins. For dev, allow localhost.
 _allowed_origins_str = os.environ.get("CORS_ORIGINS", "")
@@ -394,8 +399,9 @@ def api_submit_review():
     if str(data.get("website", "")).strip():
         return jsonify({"status": "success", "message": "Review saved successfully!"}), 201
 
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    client_ip = (forwarded.split(",")[0].strip() if forwarded else "") or request.remote_addr or "unknown"
+    # ProxyFix has already rewritten remote_addr from the trusted X-Forwarded-For
+    # hop, so it reflects the real client — no manual (spoofable) header parsing.
+    client_ip = request.remote_addr or "unknown"
     allowed, retry_after = check_review_rate_limit(client_ip)
     if not allowed:
         minutes = max(1, round(retry_after / 60))
@@ -412,6 +418,10 @@ def api_submit_review():
     saved, err = add_review(review)
     if err:
         return jsonify({"status": "error", "error": err}), 503
+
+    # Only successful writes count against the per-IP window, so a transient
+    # save failure never locks a real reviewer out of retrying.
+    record_review_submission(client_ip)
     return jsonify({"status": "success", "message": "Thanks! Your review is live.", "review": saved}), 201
 
 
